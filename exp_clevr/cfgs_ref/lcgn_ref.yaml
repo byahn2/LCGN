@@ -10,10 +10,10 @@ TRAIN:
   SOLVER:
     LR: 1e-4
     LR_DECAY: .5
-  BATCH_SIZE: 64
-  MAX_EPOCH: 35
+  BATCH_SIZE: 64 
+  MAX_EPOCH: 40
 TEST:
-  EPOCH: 35
+  EPOCH: 40 
 
 encInputDropout: 0.85
 stemDropout: 0.82
