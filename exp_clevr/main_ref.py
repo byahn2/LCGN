@@ -1,11 +1,11 @@
 import os
-import tensorflow as tf
 import numpy as np
 import json
+import torch
+import time
 
-from models_clevr.model import LCGNnet
+from models_clevr.model import LCGNwrapper
 from models_clevr.config import build_cfg_from_argparse
-from models_clevr.vis import vis_batch_ref
 from util.clevr_train.data_reader import DataReader
 
 # Load config
@@ -13,11 +13,12 @@ cfg = build_cfg_from_argparse()
 
 # Start session
 os.environ["CUDA_VISIBLE_DEVICES"] = cfg.GPUS
-sess = tf.Session(config=tf.ConfigProto(
-    allow_soft_placement=True, gpu_options=tf.GPUOptions(allow_growth=True)))
+if len(cfg.GPUS.split(',')) > 1:
+    print('PyTorch implementation currently only supports single GPU')
 
 
 def load_train_data(max_num=0):
+    load_train_time = time.time()
     imdb_file = cfg.IMDB_FILE % cfg.TRAIN.SPLIT_REF
     data_reader = DataReader(
         imdb_file, shuffle=True, max_num=max_num,
@@ -29,49 +30,73 @@ def load_train_data(max_num=0):
         spatial_feature_dir=cfg.SPATIAL_FEATURE_DIR,
         add_pos_enc=cfg.ADD_POS_ENC, img_H=cfg.IMG_H, img_W=cfg.IMG_W,
         pos_enc_dim=cfg.PE_DIM, pos_enc_scale=cfg.PE_SCALE)
+    #print('after data reader')
     num_vocab = data_reader.batch_loader.vocab_dict.num_vocab
     num_choices = data_reader.batch_loader.answer_dict.num_vocab
+    print('load_train_time: ', time.time()-load_train_time)
     return data_reader, num_vocab, num_choices
 
 
-def run_train_on_data(model, data_reader_train, saver_train, lr_start,
-                      run_eval=False, data_reader_eval=None, saver_eval=None):
+def run_train_on_data(model, data_reader_train, lr_start,
+                      run_eval=False, data_reader_eval=None):
+    model.train()
     lr = lr_start
     correct, total, loss_sum, batch_num = 0, 0, 0., 0
     prev_loss = None
+    #BRYCE CODE
+    true_pos = np.zeros(1)
+    false_pos = np.zeros(1)
+    #BRYCE CODE
     for batch, n_sample, e in data_reader_train.batches(one_pass=False):
+        batch_time = time.time()
         n_epoch = cfg.TRAIN.START_EPOCH + e
         if n_sample == 0 and n_epoch > cfg.TRAIN.START_EPOCH:
-            print('')
-            # save snapshot
+            snapshot_time = time.time()
+            ##save snapshot
             snapshot_file = cfg.SNAPSHOT_FILE % (cfg.EXP_NAME, n_epoch)
-            saver_train.save(sess, snapshot_file, write_meta_graph=False)
-            states_file = snapshot_file + '_states.npy'
+            save_model_time = time.time()
+            torch.save(model.state_dict(), snapshot_file)
+            print('\nsave_model_time: ', time.time() - save_model_time)
+            states_file = snapshot_file.replace('.ckpk', '') + '_states.npy'
             np.save(states_file, {'lr': lr})
+            print('snapshot_time: ', time.time() - snapshot_time)
+            eval_time = time.time()
             # run evaluation
             if run_eval:
-                saver_eval.restore(sess, snapshot_file)
                 run_eval_on_data(model, data_reader_eval)
-                saver_train.restore(sess, snapshot_file)
+                model.train()
+            print('eval_time: ', time.time() - eval_time)
+            adjust_time = time.time()
             # adjust lr:
             curr_loss = loss_sum/batch_num
             if prev_loss is not None:
                 lr = adjust_lr_clevr(curr_loss, prev_loss, lr)
+            print('adjust_lr_time: ', time.time() - adjust_time)
+            clear_stats_time = time.time()
             # clear stats
             correct, total, loss_sum, batch_num = 0, 0, 0., 0
             prev_loss = curr_loss
+            print('clear_stats_time: ', time.time() - clear_stats_time)
+        
+        batch_res_time = time.time()
         if n_epoch >= cfg.TRAIN.MAX_EPOCH:
             break
         batch_res = model.run_batch(
-            sess, batch, train=True, run_vqa=False, run_ref=True, lr=lr)
-        correct += batch_res['bbox_num_correct']
-        total += batch_res['batch_size']
-        loss_sum += batch_res['loss']
-        batch_num += 1
-        print('\rTrain E %d S %d: avgL=%.4f, avgA=%.4f, lr=%.1e' % (
-                n_epoch+1, total, loss_sum/batch_num, correct/total, lr),
-              end='')
+            batch, train=True, run_vqa=False, run_ref=True, lr=lr)
+        print('batch_res_time: ', time.time()-batch_res_time)
+        #BRYCE CODE
 
+        record_time = time.time()
+        correct += batch_res['bbox_num_correct']
+        total += batch_res['possible_correct']
+        #print('correct: ', correct, ' total: ', total, ' accuracy: ', correct/total)
+        #BRYCE CODE
+        loss_sum += batch_res['loss'].item()
+        batch_num += 1
+        print('\rTrain E %d S %d: avgL=%.4f, avgA=%.4f, lr=%.1e' % (n_epoch+1, total, loss_sum/batch_num, correct/total, lr), end='')
+        print('record_time: ', time.time()-record_time)
+        print('1 batch: ', time.time() - batch_time)
+        #BRYCE CODE
 
 def adjust_lr_clevr(curr_los, prev_loss, curr_lr):
     loss_diff = prev_loss - curr_los
@@ -85,6 +110,7 @@ def adjust_lr_clevr(curr_los, prev_loss, curr_lr):
 
 
 def load_eval_data(max_num=0):
+    load_eval_time = time.time()
     imdb_file = cfg.IMDB_FILE % cfg.TEST.SPLIT_REF
     data_reader = DataReader(
         imdb_file, shuffle=False, max_num=max_num,
@@ -98,30 +124,49 @@ def load_eval_data(max_num=0):
         pos_enc_dim=cfg.PE_DIM, pos_enc_scale=cfg.PE_SCALE)
     num_vocab = data_reader.batch_loader.vocab_dict.num_vocab
     num_choices = data_reader.batch_loader.answer_dict.num_vocab
+    print('load_eval_time: ', time.time() - load_eval_time)
     return data_reader, num_vocab, num_choices
 
 
-def run_eval_on_data(model, data_reader_eval, pred=False, vis=False,
-                     vis_dir=None):
+def run_eval_on_data(model, data_reader_eval, pred=False):
+    model.eval()
     predictions = []
     correct, total, loss_sum, batch_num = 0, 0, 0., 0
     for batch, _, _ in data_reader_eval.batches(one_pass=True):
         batch_res = model.run_batch(
-            sess, batch, train=False, run_vqa=False, run_ref=True, vis=vis)
-        if vis and total < cfg.TEST.NUM_VIS:
-            vis_batch_ref(data_reader_eval, batch, batch_res, total, vis_dir)
+            batch, train=False, run_vqa=False, run_ref=True)
         if pred:
-            predictions.extend([
-                {'questionId': q, 'prediction': [float(x) for x in p]}
-                for q, p in zip(
-                    batch['qid_list'], batch_res['bbox_predictions'])])
+            #predictions.extend([{'questionId': q, 'prediction': [float(x) for x in p], 'expression': e}
+            #    for q, p, e in zip( batch['qid_list'], batch_res['bbox_predictions'], batch['qstr_list'])])
+            #BRYCE CODE NO bboxes
+            #fix predictions to handle more than 1 prediction
+            #print('bbox_predictions: ', batch_res['bbox_predictions'].shape, ' ', batch_res['bbox_predictions'])
+            #print([x for x in [b for b in batch_res['bbox_predictions']]])
+            predictions.extend({'image_ID': i, 'question_ID': q, 'accuracy': a, 'expression': e, 'expression_family': f, 'prediction': [x.tolist() for x in [b for b in p] if x[2]!=0]}
+                    for i, q, a, e, f, p in zip(batch['imageid_list'], batch['qid_list'], batch_res['accuracy_list'], batch['qstr_list'], batch['ref_list'], batch_res['bbox_predictions']))
+
+            #print(predictions)
+            #pause
+            #predictions.extend({'image_ID': i, 'question_ID': q, 'accuracy': a, 'expression': e, 'expression_family': f, 'prediction': [int(x) for x in [b for b in p]]}
+            #        for i, q, a, e, f, p in zip(batch['imageid_list'], batch['qid_list'], batch_res['accuracy_list'], batch['qstr_list'], batch['ref_list'], batch_res['bbox_predictions']))
+            #print(predictions)
+            #print('image_ID: ', predictions['image_ID'])
+            #print('question_ID: ', predictions['question_ID'])
+            #print('accuracy: ', predictions['accuracy'])
+            #print('expression: ', predictions['expression'])
+            #print('expression_family: ', predictions['expression_family'])
+            #print('predictions: ', predictions['prediction'])
+            #BRYCE CODE
         correct += batch_res['bbox_num_correct']
-        total += batch_res['batch_size']
-        loss_sum += batch_res['loss']
+        #BRYCE CODE
+        total += batch_res['possible_correct']
+        #BRYCE CODE
+        loss_sum += batch_res['loss'].item()
         batch_num += 1
-        print('\rEval S %d: avgL=%.4f, avgA=%.4f' % (
-            total, loss_sum/batch_num, correct/total), end='')
-    print('')
+        #BRYCE CODE
+        print('\rEval S %d: avgL=%.4f, avgA=%.4f' % (total, loss_sum/batch_num, correct/total), end='')
+        #BRYCE CODE
+    #print('')
     eval_res = {
         'correct': correct,
         'total': total,
@@ -144,11 +189,9 @@ def train():
     data_reader_eval, _, _ = load_eval_data(max_num=cfg.TRAIN.EVAL_MAX_NUM)
 
     # Load model
-    model = LCGNnet(num_vocab, num_choices, gpusNum=len(cfg.GPUS.split(',')))
+    model = LCGNwrapper(num_vocab, num_choices)
 
     # Save snapshot
-    saver_train = tf.train.Saver(max_to_keep=None)  # keep all snapshots
-    saver_eval = tf.train.Saver(model.emaDict if cfg.USE_EMA else None)
     snapshot_dir = os.path.dirname(cfg.SNAPSHOT_FILE % (cfg.EXP_NAME, 0))
     os.makedirs(snapshot_dir, exist_ok=True)
     with open(os.path.join(snapshot_dir, 'cfg.json'), 'w') as f:
@@ -158,22 +201,18 @@ def train():
         print('resuming from epoch %d' % cfg.TRAIN.START_EPOCH)
         snapshot_file = cfg.SNAPSHOT_FILE % (
             cfg.EXP_NAME, cfg.TRAIN.START_EPOCH)
-        saver_train.restore(sess, snapshot_file)
-        states_file = snapshot_file + '_states.npy'
+        model.load_state_dict(torch.load(snapshot_file))
+        states_file = snapshot_file.replace('.ckpk', '') + '_states.npy'
         if os.path.exists(states_file):
             lr_start = np.load(states_file, allow_pickle=True)[()]['lr']
             print('recovered previous lr %.1e' % lr_start)
         else:
             print('could not recover previous lr')
-    else:
-        sess.run(tf.global_variables_initializer())
-    sess.graph.finalize()
 
     print('%s - train for %d epochs' % (cfg.EXP_NAME, cfg.TRAIN.MAX_EPOCH))
     run_train_on_data(
-        model, data_reader_train, saver_train, lr_start,
-        run_eval=cfg.TRAIN.RUN_EVAL, data_reader_eval=data_reader_eval,
-        saver_eval=saver_eval)
+        model, data_reader_train, lr_start, run_eval=cfg.TRAIN.RUN_EVAL,
+        data_reader_eval=data_reader_eval)
     print('%s - train (done)' % cfg.EXP_NAME)
 
 
@@ -181,13 +220,11 @@ def test():
     data_reader_eval, num_vocab, num_choices = load_eval_data()
 
     # Load model
-    model = LCGNnet(num_vocab, num_choices, gpusNum=len(cfg.GPUS.split(',')))
+    model = LCGNwrapper(num_vocab, num_choices)
 
     # Load test snapshot
-    saver_eval = tf.train.Saver(model.emaDict if cfg.USE_EMA else None)
     snapshot_file = cfg.SNAPSHOT_FILE % (cfg.EXP_NAME, cfg.TEST.EPOCH)
-    saver_eval.restore(sess, snapshot_file)
-    sess.graph.finalize()
+    model.load_state_dict(torch.load(snapshot_file))
 
     res_dir = cfg.TEST.RESULT_DIR % (cfg.EXP_NAME, cfg.TEST.EPOCH)
     vis_dir = os.path.join(
@@ -199,8 +236,7 @@ def test():
         print('NOT writing predictions (set TEST.DUMP_PRED True to write)')
 
     print('%s - test epoch %d' % (cfg.EXP_NAME, cfg.TEST.EPOCH))
-    eval_res = run_eval_on_data(
-        model, data_reader_eval, pred=pred, vis=True, vis_dir=vis_dir)
+    eval_res = run_eval_on_data(model, data_reader_eval, pred=pred)
     print('%s - test epoch %d: accuracy = %.4f' % (
         cfg.EXP_NAME, cfg.TEST.EPOCH, eval_res['accuracy']))
 
