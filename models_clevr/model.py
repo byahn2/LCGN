@@ -248,17 +248,23 @@ class LCGNnet(nn.Module):
     #BRYCE CODE
     def calc_correct(self, gt_scores, ref_scores):
         calc_correct_time = time.time()
+        
+        # slice inds is the indices where the ground truth positives are
         slice_inds = (gt_scores !=0).nonzero()
         total_positive = slice_inds.shape[0]
         ref_slice = ref_scores[slice_inds[:,0], slice_inds[:,1]]
+        # slice_inds_neg is the indices where the ground truth negatives are
         slice_inds_neg = (gt_scores == 0).nonzero()
         total_negative = slice_inds_neg.shape[0]
         ref_slice_neg = ref_scores[slice_inds_neg[:,0], slice_inds_neg[:,1]]
         
+        #the means of the values for the probabilities at gt positive and gt negative indiceis
         pos_mean = np.mean(torch.sigmoid(ref_slice).detach().cpu().numpy(), axis=0)
         neg_mean = np.mean(torch.sigmoid(ref_slice_neg).detach().cpu().numpy(), axis=0)
         print('\n Pos Mean: ', pos_mean, ' Neg mean: ', neg_mean)
         
+
+        #calculate ACU
         #ROC
         num_boxes = ref_scores.shape[1]
         batch_size = ref_scores.shape[0]
@@ -279,6 +285,7 @@ class LCGNnet(nn.Module):
             print('\nauc is ', roc_auc[b])
         AUC = AUC / batch_size
         
+        #for different thresholds, calculate precision and recall
         for thresh in np.arange(0, 1.01, 0.05):
             true_positive = np.sum(torch.sigmoid(ref_slice).detach().cpu().numpy() >= thresh)
             true_negative = np.sum(torch.sigmoid(ref_slice_neg).detach().cpu().numpy() < thresh)
@@ -295,6 +302,7 @@ class LCGNnet(nn.Module):
         true_positive = np.sum(torch.sigmoid(ref_slice).detach().cpu().numpy() >= cfg.MATCH_THRESH)
         true_negative = np.sum(torch.sigmoid(ref_slice_neg).detach().cpu().numpy() < cfg.MATCH_THRESH)
         
+        # recalculate for thresh in config = 0.9 and return results
         print('\n\n Threshold: ', cfg.MATCH_THRESH)
         print('Precisions: ', precision)
         print('Recall: ', recall)
