@@ -15,7 +15,7 @@ cfg = __C
 __C.train = False
 
 __C.EXP_NAME = '<fill-with-filename>'
-__C.GPUS = '0'
+__C.GPUS = '1'
 
 __C.SNAPSHOT_FILE = './exp_clevr/pytorch_ckpt/%s/%04d.ckpt'
 
@@ -75,6 +75,9 @@ __C.BUILD_REF = False
 
 # CLEVR-Ref configs
 __C.BBOX_IOU_THRESH = .5
+#BRYCE CODE
+__C.MATCH_THRESH = .90 
+#BRYCE CODE
 __C.IMG_H = 320  # size in loc
 __C.IMG_W = 480  # size in loc
 

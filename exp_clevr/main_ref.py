@@ -2,6 +2,7 @@ import os
 import numpy as np
 import json
 import torch
+import time
 
 from models_clevr.model import LCGNwrapper
 from models_clevr.config import build_cfg_from_argparse
@@ -17,6 +18,7 @@ if len(cfg.GPUS.split(',')) > 1:
 
 
 def load_train_data(max_num=0):
+    load_train_time = time.time()
     imdb_file = cfg.IMDB_FILE % cfg.TRAIN.SPLIT_REF
     data_reader = DataReader(
         imdb_file, shuffle=True, max_num=max_num,
@@ -28,8 +30,10 @@ def load_train_data(max_num=0):
         spatial_feature_dir=cfg.SPATIAL_FEATURE_DIR,
         add_pos_enc=cfg.ADD_POS_ENC, img_H=cfg.IMG_H, img_W=cfg.IMG_W,
         pos_enc_dim=cfg.PE_DIM, pos_enc_scale=cfg.PE_SCALE)
+    #print('after data reader')
     num_vocab = data_reader.batch_loader.vocab_dict.num_vocab
     num_choices = data_reader.batch_loader.answer_dict.num_vocab
+    print('load_train_time: ', time.time()-load_train_time)
     return data_reader, num_vocab, num_choices
 
 
@@ -39,38 +43,60 @@ def run_train_on_data(model, data_reader_train, lr_start,
     lr = lr_start
     correct, total, loss_sum, batch_num = 0, 0, 0., 0
     prev_loss = None
+    #BRYCE CODE
+    true_pos = np.zeros(1)
+    false_pos = np.zeros(1)
+    #BRYCE CODE
     for batch, n_sample, e in data_reader_train.batches(one_pass=False):
+        batch_time = time.time()
         n_epoch = cfg.TRAIN.START_EPOCH + e
         if n_sample == 0 and n_epoch > cfg.TRAIN.START_EPOCH:
-            print('')
-            # save snapshot
+            snapshot_time = time.time()
+            ##save snapshot
             snapshot_file = cfg.SNAPSHOT_FILE % (cfg.EXP_NAME, n_epoch)
+            save_model_time = time.time()
             torch.save(model.state_dict(), snapshot_file)
+            print('\nsave_model_time: ', time.time() - save_model_time)
             states_file = snapshot_file.replace('.ckpk', '') + '_states.npy'
             np.save(states_file, {'lr': lr})
+            print('snapshot_time: ', time.time() - snapshot_time)
+            eval_time = time.time()
             # run evaluation
             if run_eval:
                 run_eval_on_data(model, data_reader_eval)
                 model.train()
+            print('eval_time: ', time.time() - eval_time)
+            adjust_time = time.time()
             # adjust lr:
             curr_loss = loss_sum/batch_num
             if prev_loss is not None:
                 lr = adjust_lr_clevr(curr_loss, prev_loss, lr)
+            print('adjust_lr_time: ', time.time() - adjust_time)
+            clear_stats_time = time.time()
             # clear stats
             correct, total, loss_sum, batch_num = 0, 0, 0., 0
             prev_loss = curr_loss
+            print('clear_stats_time: ', time.time() - clear_stats_time)
+        
+        batch_res_time = time.time()
         if n_epoch >= cfg.TRAIN.MAX_EPOCH:
             break
         batch_res = model.run_batch(
             batch, train=True, run_vqa=False, run_ref=True, lr=lr)
+        print('batch_res_time: ', time.time()-batch_res_time)
+        #BRYCE CODE
+
+        record_time = time.time()
         correct += batch_res['bbox_num_correct']
-        total += batch_res['batch_size']
+        total += batch_res['possible_correct']
+        #print('correct: ', correct, ' total: ', total, ' accuracy: ', correct/total)
+        #BRYCE CODE
         loss_sum += batch_res['loss'].item()
         batch_num += 1
-        print('\rTrain E %d S %d: avgL=%.4f, avgA=%.4f, lr=%.1e' % (
-                n_epoch+1, total, loss_sum/batch_num, correct/total, lr),
-              end='')
-
+        print('\rTrain E %d S %d: avgL=%.4f, avgA=%.4f, lr=%.1e' % (n_epoch+1, total, loss_sum/batch_num, correct/total, lr), end='')
+        print('record_time: ', time.time()-record_time)
+        print('1 batch: ', time.time() - batch_time)
+        #BRYCE CODE
 
 def adjust_lr_clevr(curr_los, prev_loss, curr_lr):
     loss_diff = prev_loss - curr_los
@@ -84,6 +110,7 @@ def adjust_lr_clevr(curr_los, prev_loss, curr_lr):
 
 
 def load_eval_data(max_num=0):
+    load_eval_time = time.time()
     imdb_file = cfg.IMDB_FILE % cfg.TEST.SPLIT_REF
     data_reader = DataReader(
         imdb_file, shuffle=False, max_num=max_num,
@@ -97,6 +124,7 @@ def load_eval_data(max_num=0):
         pos_enc_dim=cfg.PE_DIM, pos_enc_scale=cfg.PE_SCALE)
     num_vocab = data_reader.batch_loader.vocab_dict.num_vocab
     num_choices = data_reader.batch_loader.answer_dict.num_vocab
+    print('load_eval_time: ', time.time() - load_eval_time)
     return data_reader, num_vocab, num_choices
 
 
@@ -108,17 +136,37 @@ def run_eval_on_data(model, data_reader_eval, pred=False):
         batch_res = model.run_batch(
             batch, train=False, run_vqa=False, run_ref=True)
         if pred:
-            predictions.extend([
-                {'questionId': q, 'prediction': [float(x) for x in p]}
-                for q, p in zip(
-                    batch['qid_list'], batch_res['bbox_predictions'])])
+            #predictions.extend([{'questionId': q, 'prediction': [float(x) for x in p], 'expression': e}
+            #    for q, p, e in zip( batch['qid_list'], batch_res['bbox_predictions'], batch['qstr_list'])])
+            #BRYCE CODE NO bboxes
+            #fix predictions to handle more than 1 prediction
+            #print('bbox_predictions: ', batch_res['bbox_predictions'].shape, ' ', batch_res['bbox_predictions'])
+            #print([x for x in [b for b in batch_res['bbox_predictions']]])
+            predictions.extend({'image_ID': i, 'question_ID': q, 'accuracy': a, 'expression': e, 'expression_family': f, 'prediction': [x.tolist() for x in [b for b in p] if x[2]!=0], 'gt_boxes': [x.tolist() for x in [b for b in g] if x[2]!=0]}
+                    for i, q, a, e, f, p, g in zip(batch['imageid_list'], batch['qid_list'], batch_res['accuracy_list'], batch['qstr_list'], batch['ref_list'], batch_res['bbox_predictions'], batch_res['gt_coords']))
+
+            #print(predictions)
+            #pause
+            #predictions.extend({'image_ID': i, 'question_ID': q, 'accuracy': a, 'expression': e, 'expression_family': f, 'prediction': [int(x) for x in [b for b in p]]}
+            #        for i, q, a, e, f, p in zip(batch['imageid_list'], batch['qid_list'], batch_res['accuracy_list'], batch['qstr_list'], batch['ref_list'], batch_res['bbox_predictions']))
+            #print(predictions)
+            #print('image_ID: ', predictions['image_ID'])
+            #print('question_ID: ', predictions['question_ID'])
+            #print('accuracy: ', predictions['accuracy'])
+            #print('expression: ', predictions['expression'])
+            #print('expression_family: ', predictions['expression_family'])
+            #print('predictions: ', predictions['prediction'])
+            #BRYCE CODE
         correct += batch_res['bbox_num_correct']
-        total += batch_res['batch_size']
+        #BRYCE CODE
+        total += batch_res['possible_correct']
+        #BRYCE CODE
         loss_sum += batch_res['loss'].item()
         batch_num += 1
-        print('\rEval S %d: avgL=%.4f, avgA=%.4f' % (
-            total, loss_sum/batch_num, correct/total), end='')
-    print('')
+        #BRYCE CODE
+        print('\rEval S %d: avgL=%.4f, avgA=%.4f' % (total, loss_sum/batch_num, correct/total), end='')
+        #BRYCE CODE
+    #print('')
     eval_res = {
         'correct': correct,
         'total': total,

@@ -7,7 +7,9 @@
 import argparse, os, json
 import h5py
 import numpy as np
-from scipy.misc import imread, imresize
+#from scipy.misc import imread, imresize
+from PIL import Image
+from numpy import asarray
 
 import torch
 import torchvision
@@ -54,7 +56,8 @@ def run_batch(cur_batch, model):
   image_batch = np.concatenate(cur_batch, 0).astype(np.float32)
   image_batch = (image_batch / 255.0 - mean) / std
   image_batch = torch.FloatTensor(image_batch).cuda()
-  image_batch = torch.autograd.Variable(image_batch, volatile=True)
+  with torch.no_grad():
+    image_batch = torch.autograd.Variable(image_batch)
 
   feats = model(image_batch)
   feats = feats.data.cpu().clone().numpy()
@@ -80,14 +83,16 @@ def main(args):
 
   model = build_model(args)
 
-  img_size = (args.image_height, args.image_width)
+  img_size = (args.image_width, args.image_height)
   with h5py.File(args.output_h5_file, 'w') as f:
     feat_dset = None
     i0 = 0
     cur_batch = []
     for i, (path, idx) in enumerate(input_paths):
-      img = imread(path, mode='RGB')
-      img = imresize(img, img_size, interp='bicubic')
+      img = Image.open(path)
+      img = img.convert('RGB')
+      img = img.resize(img_size, resample=Image.BICUBIC)
+      img = asarray(img)
       img = img.transpose(2, 0, 1)[None]
       cur_batch.append(img)
       if len(cur_batch) == args.batch_size:
@@ -105,6 +110,7 @@ def main(args):
     if len(cur_batch) > 0:
       feats = run_batch(cur_batch, model)
       i1 = i0 + len(cur_batch)
+      print(feat_dset)
       feat_dset[i0:i1] = feats
       print('Processed %d / %d images' % (i1, len(input_paths)))
 

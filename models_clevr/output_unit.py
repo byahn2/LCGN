@@ -3,7 +3,9 @@ from torch import nn
 
 from . import ops as ops
 from .config import cfg
-
+#BRYCE CODE
+import numpy as np
+#BRYCE CODE
 
 class Classifier(nn.Module):
     def __init__(self, num_choices):
@@ -34,14 +36,20 @@ class BboxRegression(nn.Module):
 
     def forward(self, x_out, loc_scores):
         bbox_offset_fcn = self.bbox_offset_fcn(x_out)
-        bbox_offset_flat = bbox_offset_fcn.view(-1, 4)
-
+        #BRYCE CODE
+        #print('BboxRegression')
+        #print('bbox_offset_fcn: ', bbox_offset_fcn.shape)
         assert len(x_out.size()) == 3
-        batch_size = x_out.size(0)
-        max_entity_num = x_out.size(1)
-        slice_inds = (
-            torch.arange(batch_size, device=x_out.device) * max_entity_num +
-            torch.argmax(loc_scores, dim=-1))
-        bbox_offset = bbox_offset_flat[slice_inds]
+        slice_inds = np.argwhere(loc_scores.detach().cpu().numpy() > cfg.MATCH_THRESH)
+        if slice_inds.size == 0:
+            #print(' none exceed max thresh')
+            max_val = np.max(loc_scores.detach().cpu().numpy())
+            slice_inds = np.argwhere(loc_scores.detach().cpu().numpy() == max_val)
+        #print('slice_inds: ', slice_inds.shape)
+        #print(slice_inds)
+        bbox_offset = bbox_offset_fcn[slice_inds[:,0], slice_inds[:,1], :]
+        #print('bbox_offset: ', bbox_offset.shape)
+        #print(bbox_offset)
 
-        return bbox_offset, bbox_offset_fcn
+        return bbox_offset, bbox_offset_fcn, slice_inds
+        #BRYCE CODE

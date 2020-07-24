@@ -14,7 +14,9 @@ class BatchLoaderClevr:
     def __init__(self, imdb, data_params):
         self.imdb = imdb
         self.data_params = data_params
-
+        # BRYCE CODE
+        self.max_answers = 20
+        # BRYCE CODE
         self.vocab_dict = text_processing.VocabDict(
             data_params['vocab_question_file'])
         self.T_encoder = data_params['T_encoder']
@@ -63,14 +65,18 @@ class BatchLoaderClevr:
             spatial_feat_batch = np.zeros(
                 (actual_batch_size, self.spatial_D, self.spatial_H,
                  self.spatial_W), np.float32)
+        #BRYCE CODE
+        # each matrix is the actual batch size by the max possible number of answers by the dimensions of the information
         if self.load_bbox:
-            bbox_batch = np.zeros((actual_batch_size, 4), np.float32)
-            bbox_ind_batch = np.zeros(actual_batch_size, np.int32)
-            bbox_offset_batch = np.zeros((actual_batch_size, 4), np.float32)
+            bbox_batch = -10 * np.ones((actual_batch_size, self.max_answers, 4), np.float32)
+            bbox_ind_batch = -10 * np.ones((actual_batch_size, self.max_answers), np.int32)
+            bbox_offset_batch = -10 * np.ones((actual_batch_size, self.max_answers, 4), np.float32)
+        # BRYCE CODE
 
         qid_list = [None]*actual_batch_size
         qstr_list = [None]*actual_batch_size
         imageid_list = [None]*actual_batch_size
+        ref_list = [None]*actual_batch_size
         if self.load_answer:
             answer_label_batch = np.zeros(actual_batch_size, np.int32)
         else:
@@ -93,19 +99,31 @@ class BatchLoaderClevr:
             qid_list[n] = iminfo['questionId']
             qstr_list[n] = question_str
             imageid_list[n] = iminfo['imageId']
+            #BRYCE CODE
+            ref_list[n] = iminfo['ref_class']
+            #BRYCE CODE
             if self.load_answer:
                 answer_idx = self.answer_dict.word2idx(iminfo['answer'])
                 answer_label_batch[n] = answer_idx
+            # BRYCE CODE
+            #print('DATA READER')
             if self.load_bbox:
-                bbox_batch[n] = iminfo['bbox']
-                bbox_ind_batch[n], bbox_offset_batch[n] = bbox2feat_grid(
-                    iminfo['bbox'], self.stride_H, self.stride_W,
-                    self.spatial_H, self.spatial_W)
+                bboxes = iminfo['bbox']
+                num_answers = len(bboxes)
+                #print('num_answers: ', str(num_answers))
+                for i in range(num_answers):
+                    bbox = bboxes[i]
+                    bbox_batch[n,i,:] = bbox
+                    bbox_ind_batch[n,i], bbox_offset_batch[n,i,:] = bbox2feat_grid(bbox, self.stride_H, self.stride_W, self.spatial_H, self.spatial_W)
+                    #print('bbox: ', bbox)
+                    #print('ind: ', bbox_ind_batch[n,i])
+                    #print('offset: ', bbox_offset_batch[n,i,:])
         batch = dict(input_seq_batch=input_seq_batch,
                      seq_length_batch=seq_length_batch,
                      answer_label_batch=answer_label_batch,
                      qid_list=qid_list, qstr_list=qstr_list,
-                     imageid_list=imageid_list)
+                     imageid_list=imageid_list, ref_list=ref_list)
+            #BRYCE CODE
         if self.load_spatial_feature:
             # NCHW -> NHWC
             spatial_feat_batch = spatial_feat_batch.transpose((0, 2, 3, 1))
@@ -174,6 +192,12 @@ class DataReader:
 
 def _run_prefetch(prefetch_queue, batch_loader, imdb, shuffle, data_params):
     num_samples = len(imdb)
+    #DEBUG
+    # change batch size to n in the config first
+    #n = 10
+    #num_samples = n
+    #shuffle = False
+    #DEBUG
     batch_size = data_params['batch_size']
 
     n_sample = 0

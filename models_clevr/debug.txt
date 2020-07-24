@@ -1,0 +1,29 @@
+if run_ref:
+	bbox_Ind = torch.from_numpy(batch['bbow_ind_batch'].astype(np.int64)).cuda()
+	max_targets = bboxInd.shape[1]
+	batch_size = len(batch['image_feat_batch']
+	for b in range(batchSize):
+		for a in range(max_targets):
+			if bboxInd[b,a] > -1:
+				ind = bboxInd[b,a]
+				bboxRefScoreGt[b, ind] = 1
+			else:
+				continue
+
+
+
+
+
+if run_ref:
+	assert cfg.FEAT_TYPE == 'spatial'
+	ref_scores = self.grounder(x_out, vecQuestions, imagesObjectNum)
+	loss += F.binary_cross_entropy_with_logits(ref_scores.view(-1), bboxRefScoreGt.view(-1))
+	slice_inds = torch.nonzero(bboxRefScoreGt)
+	ref_slice = ref_scores[slice_inds[:,0], slice_inds[:,1]]
+	true_positive = np.sum(ref_slice.detach().cpu().numpy() >= cfg.MATCH_THRESH)
+	possible_correct = torch.sum(bboxRefScoreGt).item()
+	res.update({
+		"bbox_num_correct": int(true_positive),
+		"bbox_accuracy": float(bbox_num_correct * 1. / possible_correct),
+		"possible_correct": possible_correct
+	})
