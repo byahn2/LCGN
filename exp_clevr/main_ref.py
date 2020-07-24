@@ -43,10 +43,6 @@ def run_train_on_data(model, data_reader_train, lr_start,
     lr = lr_start
     correct, total, loss_sum, batch_num = 0, 0, 0., 0
     prev_loss = None
-    #BRYCE CODE
-    true_pos = np.zeros(1)
-    false_pos = np.zeros(1)
-    #BRYCE CODE
     for batch, n_sample, e in data_reader_train.batches(one_pass=False):
         batch_time = time.time()
         n_epoch = cfg.TRAIN.START_EPOCH + e
@@ -136,26 +132,12 @@ def run_eval_on_data(model, data_reader_eval, pred=False):
         batch_res = model.run_batch(
             batch, train=False, run_vqa=False, run_ref=True)
         if pred:
-            #predictions.extend([{'questionId': q, 'prediction': [float(x) for x in p], 'expression': e}
-            #    for q, p, e in zip( batch['qid_list'], batch_res['bbox_predictions'], batch['qstr_list'])])
-            #BRYCE CODE NO bboxes
-            #fix predictions to handle more than 1 prediction
-            #print('bbox_predictions: ', batch_res['bbox_predictions'].shape, ' ', batch_res['bbox_predictions'])
-            #print([x for x in [b for b in batch_res['bbox_predictions']]])
+            #BRYCE CODE
             predictions.extend({'image_ID': i, 'question_ID': q, 'accuracy': a, 'expression': e, 'expression_family': f, 'prediction': [x.tolist() for x in [b for b in p] if x[2]!=0], 'gt_boxes': [x.tolist() for x in [b for b in g] if x[2]!=0]}
                     for i, q, a, e, f, p, g in zip(batch['imageid_list'], batch['qid_list'], batch_res['accuracy_list'], batch['qstr_list'], batch['ref_list'], batch_res['bbox_predictions'], batch_res['gt_coords']))
 
             #print(predictions)
             #pause
-            #predictions.extend({'image_ID': i, 'question_ID': q, 'accuracy': a, 'expression': e, 'expression_family': f, 'prediction': [int(x) for x in [b for b in p]]}
-            #        for i, q, a, e, f, p in zip(batch['imageid_list'], batch['qid_list'], batch_res['accuracy_list'], batch['qstr_list'], batch['ref_list'], batch_res['bbox_predictions']))
-            #print(predictions)
-            #print('image_ID: ', predictions['image_ID'])
-            #print('question_ID: ', predictions['question_ID'])
-            #print('accuracy: ', predictions['accuracy'])
-            #print('expression: ', predictions['expression'])
-            #print('expression_family: ', predictions['expression_family'])
-            #print('predictions: ', predictions['prediction'])
             #BRYCE CODE
         correct += batch_res['bbox_num_correct']
         #BRYCE CODE
