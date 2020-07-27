@@ -64,7 +64,7 @@ class LCGN(nn.Module):
             x_ctx = self.run_message_passing_iter(
                 q_encoding, lstm_outputs, q_length, x_loc, x_ctx,
                 x_ctx_var_drop, entity_num, t)
-        x_out = self.combine_kb(torch.cat([x_loc, x_ctx], dim=-1))
+        x_out = self.combine_kb(torch.cat([x_loc, x_ctx], dim=-1)) # self.combine_kb is W12 from equation 8
         return x_out
 
     # takes the lstm outputs, q_length = number of words, t = iteration, and q encoding which is the summary vector of lstm outputs
@@ -72,12 +72,13 @@ class LCGN(nn.Module):
     def extract_textual_command(self, q_encoding, lstm_outputs, q_length, t):
         qInput_layer2 = getattr(self, "qInput%d" % t)
         act_fun = ops.activations[cfg.CMD_INPUT_ACT] #CMD_INPUT_ACT = 'ELU'
-        q_cmd = qInput_layer2(act_fun(self.qInput(q_encoding)))
+        q_cmd = qInput_layer2(act_fun(self.qInput(q_encoding))) #self.qInput is W3 and qInput_layer2 is W2(t) frome equation 2
         raw_att = self.cmd_inter2logits(
-            q_cmd[:, None, :] * lstm_outputs).squeeze(-1)
+            q_cmd[:, None, :] * lstm_outputs).squeeze(-1) #self.cmd_inter2logits is W1 from equation 2
         raw_att = ops.apply_mask1d(raw_att, q_length)
         att = F.softmax(raw_att, dim=-1)
-        cmd = torch.bmm(att[:, None, :], lstm_outputs).squeeze(1)
+        cmd = torch.bmm(att[:, None, :], lstm_outputs).squeeze(1) #Equation 1
+        # torch.bmm performs a batch matrix-matrix product
         return cmd
 
     # run for one entity
@@ -88,22 +89,22 @@ class LCGN(nn.Module):
     #updates context by concatenating incoming messages to update context representation
     def propagate_message(self, cmd, x_loc, x_ctx, x_ctx_var_drop, entity_num):
         x_ctx = x_ctx * x_ctx_var_drop
-        proj_x_loc = self.project_x_loc(self.read_drop(x_loc))
-        proj_x_ctx = self.project_x_ctx(self.read_drop(x_ctx))
+        proj_x_loc = self.project_x_loc(self.read_drop(x_loc)) #proj_x_loc = W4*x_loc from equation 4
+        proj_x_ctx = self.project_x_ctx(self.read_drop(x_ctx)) #proj_x_ctx = W5*x_ctx from equation 4
         x_joint = torch.cat(
             [x_loc, x_ctx, proj_x_loc * proj_x_ctx], dim=-1)
 
-        queries = self.queries(x_joint)
-        keys = self.keys(x_joint) * self.proj_keys(cmd)[:, None, :]
-        vals = self.vals(x_joint) * self.proj_vals(cmd)[:, None, :]
+        queries = self.queries(x_joint) #queries ar W6*x_joint from equation 5
+        keys = self.keys(x_joint) * self.proj_keys(cmd)[:, None, :] #keys = (W7*x_joint) * (W8*cmd)) from eq 5
+        vals = self.vals(x_joint) * self.proj_vals(cmd)[:, None, :] #vals are ((W9*x_joint) * (W10*cmd)) from equation 6
         edge_score = (
             torch.bmm(queries, torch.transpose(keys, 1, 2)) /
             np.sqrt(cfg.CTX_DIM))
         edge_score = ops.apply_mask2d(edge_score, entity_num)
         edge_prob = F.softmax(edge_score, dim=-1)
-        message = torch.bmm(edge_prob, vals)
+        message = torch.bmm(edge_prob, vals) #message is weight * keys from equation 6
 
-        x_ctx_new = self.mem_update(torch.cat([x_ctx, message], dim=-1))
+        x_ctx_new = self.mem_update(torch.cat([x_ctx, message], dim=-1)) #new_ctx = W11*(old_ctx * sum of messages) from equation 7
         return x_ctx_new
 
     # for one iteration, extracts textual command and updates context
