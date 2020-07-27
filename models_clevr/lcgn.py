@@ -8,12 +8,14 @@ from .config import cfg
 
 
 class LCGN(nn.Module):
+    # LCGN model is composed of the context initiator, textual command extractor, and message passing
     def __init__(self):
         super().__init__()
         self.build_loc_ctx_init()
         self.build_extract_textual_command()
         self.build_propagate_message()
 
+    # the context initiator learns how to initialize the context representations for the first iteration t=0
     def build_loc_ctx_init(self):
         assert cfg.STEM_LINEAR != cfg.STEM_CNN
         if cfg.STEM_LINEAR:
@@ -30,6 +32,7 @@ class LCGN(nn.Module):
 
         self.initMem = nn.Parameter(torch.randn(1, 1, cfg.CTX_DIM))
 
+    # textual command extraction learns a set of t commands from the input text
     def build_extract_textual_command(self):
         self.qInput = ops.Linear(cfg.CMD_DIM, cfg.CMD_DIM)
         for t in range(cfg.MSG_ITER_NUM):
@@ -37,6 +40,7 @@ class LCGN(nn.Module):
             setattr(self, "qInput%d" % t, qInput_layer2)
         self.cmd_inter2logits = ops.Linear(cfg.CMD_DIM, 1)
 
+    
     def build_propagate_message(self):
         self.read_drop = nn.Dropout(1 - cfg.readDropout)
         self.project_x_loc = ops.Linear(cfg.CTX_DIM, cfg.CTX_DIM)
@@ -49,6 +53,10 @@ class LCGN(nn.Module):
         self.mem_update = ops.Linear(2*cfg.CTX_DIM, cfg.CTX_DIM)
         self.combine_kb = ops.Linear(2*cfg.CTX_DIM, cfg.CTX_DIM)
 
+
+    # retrieves the local feature information and initializes the context information
+    # for t iterations, updates the context for each region using message passing
+    # outputs the concatenation of the local feature information and the context information after t iterations
     def forward(self, images, q_encoding, lstm_outputs, batch_size, q_length,
                 entity_num):
         x_loc, x_ctx, x_ctx_var_drop = self.loc_ctx_init(images)
@@ -59,6 +67,8 @@ class LCGN(nn.Module):
         x_out = self.combine_kb(torch.cat([x_loc, x_ctx], dim=-1))
         return x_out
 
+    # takes the lstm outputs, q_length = number of words, t = iteration, and q encoding which is the summary vector of lstm outputs
+    # calcualtes the attention and returns the command c_t for iteration t
     def extract_textual_command(self, q_encoding, lstm_outputs, q_length, t):
         qInput_layer2 = getattr(self, "qInput%d" % t)
         act_fun = ops.activations[cfg.CMD_INPUT_ACT]
@@ -70,6 +80,12 @@ class LCGN(nn.Module):
         cmd = torch.bmm(att[:, None, :], lstm_outputs).squeeze(1)
         return cmd
 
+    # run for one entity
+    # calculates x joint from local features and context features for t-1
+    # what are queries, keys, and vals?
+    # calculates edge weights
+    # calculates messages
+    #updates context by concatenating incoming messages to update context representation
     def propagate_message(self, cmd, x_loc, x_ctx, x_ctx_var_drop, entity_num):
         x_ctx = x_ctx * x_ctx_var_drop
         proj_x_loc = self.project_x_loc(self.read_drop(x_loc))
@@ -90,6 +106,7 @@ class LCGN(nn.Module):
         x_ctx_new = self.mem_update(torch.cat([x_ctx, message], dim=-1))
         return x_ctx_new
 
+    # for one iteration, extracts textual command and updates context
     def run_message_passing_iter(
             self, q_encoding, lstm_outputs, q_length, x_loc, x_ctx,
             x_ctx_var_drop, entity_num, t):
@@ -99,6 +116,7 @@ class LCGN(nn.Module):
             cmd, x_loc, x_ctx, x_ctx_var_drop, entity_num)
         return x_ctx
 
+    # ititializes context
     def loc_ctx_init(self, images):
         if cfg.STEM_NORMALIZE:
             images = F.normalize(images, dim=-1)
