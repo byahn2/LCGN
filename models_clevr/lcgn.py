@@ -19,36 +19,36 @@ class LCGN(nn.Module):
     def build_loc_ctx_init(self):
         assert cfg.STEM_LINEAR != cfg.STEM_CNN
         if cfg.STEM_LINEAR:
-            self.initKB = ops.Linear(cfg.D_FEAT, cfg.CTX_DIM)
-            self.x_loc_drop = nn.Dropout(1 - cfg.stemDropout)
+            self.initKB = ops.Linear(cfg.D_FEAT, cfg.CTX_DIM) #D_FEAT = feature dimensions = 1152 = 1024+128 CTX_DIM = context dimensions = 512
+            self.x_loc_drop = nn.Dropout(1 - cfg.stemDropout) #stemDropout = 1
         elif cfg.STEM_CNN:
             self.cnn = nn.Sequential(
                 nn.Dropout(1 - cfg.stemDropout),
-                ops.Conv(cfg.D_FEAT, cfg.STEM_CNN_DIM, (3, 3), padding=1),
+                ops.Conv(cfg.D_FEAT, cfg.STEM_CNN_DIM, (3, 3), padding=1), #STEM_CNN_DIM = 512
                 nn.ELU(),
                 nn.Dropout(1 - cfg.stemDropout),
-                ops.Conv(cfg.STEM_CNN_DIM, cfg.CTX_DIM, (3, 3), padding=1),
+                ops.Conv(cfg.STEM_CNN_DIM, cfg.CTX_DIM, (3, 3), padding=1), #STEM CNN_DIM = 512, CTX_DIM = 512
                 nn.ELU())
 
         self.initMem = nn.Parameter(torch.randn(1, 1, cfg.CTX_DIM))
 
     # textual command extraction learns a set of t commands from the input text
     def build_extract_textual_command(self):
-        self.qInput = ops.Linear(cfg.CMD_DIM, cfg.CMD_DIM)
-        for t in range(cfg.MSG_ITER_NUM):
+        self.qInput = ops.Linear(cfg.CMD_DIM, cfg.CMD_DIM) #CMD_DIM = 512
+        for t in range(cfg.MSG_ITER_NUM): #MSG_ITR_NUM = 4
             qInput_layer2 = ops.Linear(cfg.CMD_DIM, cfg.CMD_DIM)
             setattr(self, "qInput%d" % t, qInput_layer2)
         self.cmd_inter2logits = ops.Linear(cfg.CMD_DIM, 1)
 
     
     def build_propagate_message(self):
-        self.read_drop = nn.Dropout(1 - cfg.readDropout)
-        self.project_x_loc = ops.Linear(cfg.CTX_DIM, cfg.CTX_DIM)
+        self.read_drop = nn.Dropout(1 - cfg.readDropout) #readDropout = 0.85
+        self.project_x_loc = ops.Linear(cfg.CTX_DIM, cfg.CTX_DIM) #CTX_DIM = 512
         self.project_x_ctx = ops.Linear(cfg.CTX_DIM, cfg.CTX_DIM)
         self.queries = ops.Linear(3*cfg.CTX_DIM, cfg.CTX_DIM)
         self.keys = ops.Linear(3*cfg.CTX_DIM, cfg.CTX_DIM)
         self.vals = ops.Linear(3*cfg.CTX_DIM, cfg.CTX_DIM)
-        self.proj_keys = ops.Linear(cfg.CMD_DIM, cfg.CTX_DIM)
+        self.proj_keys = ops.Linear(cfg.CMD_DIM, cfg.CTX_DIM) #CMD_DIM = 512
         self.proj_vals = ops.Linear(cfg.CMD_DIM, cfg.CTX_DIM)
         self.mem_update = ops.Linear(2*cfg.CTX_DIM, cfg.CTX_DIM)
         self.combine_kb = ops.Linear(2*cfg.CTX_DIM, cfg.CTX_DIM)
@@ -60,7 +60,7 @@ class LCGN(nn.Module):
     def forward(self, images, q_encoding, lstm_outputs, batch_size, q_length,
                 entity_num):
         x_loc, x_ctx, x_ctx_var_drop = self.loc_ctx_init(images)
-        for t in range(cfg.MSG_ITER_NUM):
+        for t in range(cfg.MSG_ITER_NUM): #MSG_ITER_NUM = 4
             x_ctx = self.run_message_passing_iter(
                 q_encoding, lstm_outputs, q_length, x_loc, x_ctx,
                 x_ctx_var_drop, entity_num, t)
@@ -71,7 +71,7 @@ class LCGN(nn.Module):
     # calcualtes the attention and returns the command c_t for iteration t
     def extract_textual_command(self, q_encoding, lstm_outputs, q_length, t):
         qInput_layer2 = getattr(self, "qInput%d" % t)
-        act_fun = ops.activations[cfg.CMD_INPUT_ACT]
+        act_fun = ops.activations[cfg.CMD_INPUT_ACT] #CMD_INPUT_ACT = 'ELU'
         q_cmd = qInput_layer2(act_fun(self.qInput(q_encoding)))
         raw_att = self.cmd_inter2logits(
             q_cmd[:, None, :] * lstm_outputs).squeeze(-1)
@@ -118,9 +118,9 @@ class LCGN(nn.Module):
 
     # ititializes context
     def loc_ctx_init(self, images):
-        if cfg.STEM_NORMALIZE:
+        if cfg.STEM_NORMALIZE: #STEM_NORMALIZE = True
             images = F.normalize(images, dim=-1)
-        if cfg.STEM_LINEAR:
+        if cfg.STEM_LINEAR: #STEM_LINEAR = True
             x_loc = self.initKB(images)
             x_loc = self.x_loc_drop(x_loc)
         elif cfg.STEM_CNN:
@@ -129,7 +129,7 @@ class LCGN(nn.Module):
             x_loc = self.cnn(x_loc)
             x_loc = x_loc.view(-1, cfg.CTX_DIM, cfg.H_FEAT * cfg.W_FEAT)
             x_loc = torch.transpose(x_loc, 1, 2)  # NC(HW) => N(HW)C
-        if cfg.STEM_RENORMALIZE:
+        if cfg.STEM_RENORMALIZE: #STEM RENORMALIZE = False
             x_loc = F.normalize(x_loc, dim=-1)
 
         x_ctx = self.initMem.expand(x_loc.size())
