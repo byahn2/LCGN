@@ -34,23 +34,35 @@ class LCGN(nn.Module):
 
     # textual command extraction learns a set of t commands from the input text
     def build_extract_textual_command(self):
+        #self.qInput = W3 from equation 2
         self.qInput = ops.Linear(cfg.CMD_DIM, cfg.CMD_DIM) #CMD_DIM = 512
         for t in range(cfg.MSG_ITER_NUM): #MSG_ITR_NUM = 4
+            #qInput_layer2 is W2(t) from equation 2
             qInput_layer2 = ops.Linear(cfg.CMD_DIM, cfg.CMD_DIM)
             setattr(self, "qInput%d" % t, qInput_layer2)
+        # self.cmd_inter2logits = W1 from equation 2
         self.cmd_inter2logits = ops.Linear(cfg.CMD_DIM, 1)
 
     
     def build_propagate_message(self):
         self.read_drop = nn.Dropout(1 - cfg.readDropout) #readDropout = 0.85
+        #self.project_x_loc = W4 from equation 4
         self.project_x_loc = ops.Linear(cfg.CTX_DIM, cfg.CTX_DIM) #CTX_DIM = 512
+        #self.project_x_ctx = W5 from equation 4
         self.project_x_ctx = ops.Linear(cfg.CTX_DIM, cfg.CTX_DIM)
+        #self.queries = W6 from equation 5
         self.queries = ops.Linear(3*cfg.CTX_DIM, cfg.CTX_DIM)
+        #self.keys = W7 from equation 5
         self.keys = ops.Linear(3*cfg.CTX_DIM, cfg.CTX_DIM)
+        #self.vals = W9 from equation 5
         self.vals = ops.Linear(3*cfg.CTX_DIM, cfg.CTX_DIM)
+        #self.proj_keys = W8 from equation 5
         self.proj_keys = ops.Linear(cfg.CMD_DIM, cfg.CTX_DIM) #CMD_DIM = 512
+        #self.proj_values = W10 from equation 5
         self.proj_vals = ops.Linear(cfg.CMD_DIM, cfg.CTX_DIM)
+        #self.mem_update = W11 from equation 7
         self.mem_update = ops.Linear(2*cfg.CTX_DIM, cfg.CTX_DIM)
+        #self.combine_kb = W12 from equation 8
         self.combine_kb = ops.Linear(2*cfg.CTX_DIM, cfg.CTX_DIM)
 
 
