@@ -176,45 +176,35 @@ class LCGNnet(nn.Module):
             bbox_predictions = batch_feat_grid2bbox(ref_inds, bboxBatchGt.shape,bbox_offset.detach().cpu().numpy(),cfg.IMG_H / cfg.H_FEAT, cfg.IMG_W / cfg.W_FEAT,cfg.H_FEAT, cfg.W_FEAT)
             
             #DEBUG
-            #bbox_ind_loss, bbox_offset_loss = self.add_bbox_loss_op(ref_scores, bbox_offset_fcn, bboxRefScoreGt, bboxOffsetGt)
             
             #calculate the loss
             loss_time = time.time()
-            bbox_ind_loss = self.add_bbox_loss_op(ref_scores, bboxRefScoreGt)
-            loss += (bbox_ind_loss) #DEBUG  + bbox_offset_loss) #DEBUG
+            #bbox_ind_loss = self.add_bbox_loss_op(ref_scores, bboxRefScoreGt)
+            #loss += (bbox_ind_loss) #DEBUG  + bbox_offset_loss) #DEBUG
+            bbox_ind_loss, bbox_offset_loss = self.add_bbox_loss_op(ref_scores, bbox_offset_fcn, bboxRefScoreGt, bboxOffsetGt)
+            loss += (bbox_ind_loss + bbox_offset_loss)
             print('loss_time: ', time.time()-loss_time)
             
             # for normal version, calculate box ious to use as a metric
-            #bbox_ious = batch_bbox_iou(bbox_predictions, bboxBatchGt, bboxRefScoreGt)
+            bbox_ious = batch_bbox_iou(bbox_predictions, bboxBatchGt, bboxRefScoreGt)
             #print('bbox_ious: ', bbox_ious.shape)
-            #bbox_num_correct = np.sum(bbox_ious >= cfg.BBOX_IOU_THRESH)
+            bbox_num_correct = np.sum(bbox_ious >= cfg.BBOX_IOU_THRESH)
+            accuracy_list = np.sum(bbox_ious >= cfg.BBOX_IOU_THRESH, axis=1)/bbox_num_correct.shape[1]
+            print('accuracy_list: ', accuracy_list.shape, ' ', accuracy_list)
+            
             
             # calculate number of positives, negatives, and AUC using function
             true_positive, total_positive, true_negative, total_negative, AUC = self.calc_correct(bboxRefScoreGt, ref_scores)
             
             # probabilities is a matrix of 1s and 0s based on probabilities above and below the threshold
             # use this to create a list of the accuracy for each image in the batch.  accuracy list is 1 x batch_size
-            probabilities = torch.sigmoid(ref_scores)
-            probabilities[probabilities > cfg.MATCH_THRESH] = 1
-            probabilities[probabilities < cfg.MATCH_THRESH] = 0
-            probabilities = torch.abs(bboxRefScoreGt - probabilities)
-            accuracy_list = 1 - (torch.sum(probabilities, axis=1) / probabilities.shape[1]).detach().cpu().numpy().astype(float)
+            #probabilities = torch.sigmoid(ref_scores)
+            #probabilities[probabilities > cfg.MATCH_THRESH] = 1
+            #probabilities[probabilities < cfg.MATCH_THRESH] = 0
+            #probabilities = torch.abs(bboxRefScoreGt - probabilities)
+            #accuracy_list = 1 - (torch.sum(probabilities, axis=1) / probabilities.shape[1]).detach().cpu().numpy().astype(float)
             #print('accuracy_list: ', accuracy_list.shape, ' ', accuracy_list)
 
-            # anywhere where we have the ground truth bbox coordinates, replace the bbox predictions with the ground truth
-            slice_inds = (bboxRefScoreGt !=0).nonzero()
-            bbox_predictions = torch.from_numpy(bbox_predictions).cuda()
-            bbox_predictions[slice_inds[:,0], slice_inds[:,1], :] = bboxBatchGt[slice_inds[:,0], slice_inds[:,1], :].double()
-            #print('bbox_predictions model: ', bbox_predictions[slice_inds[:,0], slice_inds[:,1],:])
-            # only keep the ground thruth box coordinates for boxes with probabilities above threshold
-            thresh_inds = (probabilities != 0).nonzero()
-            thresh_boxes = bbox_predictions[thresh_inds[:,0], thresh_inds[:,1], :]
-            thresh_boxes[:, 2:4][thresh_boxes[:,2:4]<5] = 20
-            bbox_predictions[thresh_inds[:,0], thresh_inds[:,1], :] = thresh_boxes
-            #print(bbox_predictions[thresh_inds[:,0], thresh_inds[:,1],:])
-            bbox_predictions = bbox_predictions.detach().cpu().numpy().astype(int)
-            #bbox_predictions = bbox_predictions[slice_inds[:,0], slice_inds[:,1], :].detach().cpu().numpy().astype(int)
-            
             #print('bbox_predictions_above threshold: ', bbox_predictions)
             #print('bbox_predictions: ', bbox_predictions[slice_inds[:,0], slice_inds[:,1], :])
             #print(bbox_predictions[ref_inds[0,0], ref_inds[0,1], :])
@@ -228,7 +218,7 @@ class LCGNnet(nn.Module):
                 "accuracy_list" : accuracy_list,
                 "bbox_predictions": bbox_predictions,
                 "gt_coords": bboxBatchGt,
-                #"bbox_ious": bbox_ious,
+                "bbox_ious": bbox_ious,
                 "true_positive": int(true_positive),
                 "true_negative": int(true_negative),
                 "false_positive": int(total_negative-true_negative),
@@ -266,10 +256,8 @@ class LCGNnet(nn.Module):
 
         #calculate ACU
         #ROC
-        num_boxes = ref_scores.shape[1]
         batch_size = ref_scores.shape[0]
         probabilities = torch.sigmoid(ref_scores).detach().cpu().numpy()
-        #positive = 0 + np.sum(probabilities >= .9)
         gt = gt_scores.detach().cpu().numpy()
         if batch_size == 1:
             gt = np.expand_dims(gt, axis=0)
@@ -282,8 +270,9 @@ class LCGNnet(nn.Module):
             fpr[b], tpr[b], _ = roc_curve(gt[b,:].T, probabilities[b,:].T)
             roc_auc[b] = auc(fpr[b], tpr[b])
             AUC += roc_auc[b]
-            print('\nauc is ', roc_auc[b])
+            #print('\nauc is ', roc_auc[b])
         AUC = AUC / batch_size
+        print('Average AUC: ', AUC)
         
         #for different thresholds, calculate precision and recall
         for thresh in np.arange(0, 1.01, 0.05):
@@ -336,12 +325,12 @@ class LCGNnet(nn.Module):
         return loss
 
     #DEBUG
-    #def add_bbox_loss_op(self, ref_scores, bbox_offset_fcn, bbox_ind_gt, bbox_offset_gt):
+    def add_bbox_loss_op(self, ref_scores, bbox_offset_fcn, bbox_ind_gt, bbox_offset_gt):
         #BRYCE CODE
         # bounding box selection loss
         
         #print('ref_scores: ', ref_scores.shape, ' bbox_ind_gt: ', bbox_ind_gt.shape)
-    def add_bbox_loss_op(self, ref_scores, bbox_ind_gt):
+    #def add_bbox_loss_op(self, ref_scores, bbox_ind_gt):
     #DEBUG
         # Using weight 
         gt_positive = 1.0 * torch.sum(bbox_ind_gt).item()
@@ -356,34 +345,35 @@ class LCGNnet(nn.Module):
         #print(weight_matrix[1,:])
         bbox_ind_loss = F.binary_cross_entropy_with_logits(input=ref_scores, target=bbox_ind_gt, weight=weight_matrix, reduction='mean')
          
-        #bbox_ind_loss = F.binary_cross_entropy_with_logits(ref_scores, bbox_ind_gt)
+        bbox_ind_loss = F.binary_cross_entropy_with_logits(ref_scores, bbox_ind_gt)
         #print('\nref_scores: ', torch.sigmoid(ref_scores).view(-1))
         #print('gt: ', bbox_ind_gt.view(-1))
         #print('gt size: ', bbox_ind_gt.shape)
         # bounding box regression loss
        
-        #slice_inds = (bbox_ind_gt != 0).nonzero()
+        slice_inds = (bbox_ind_gt != 0).nonzero()
         #print(weight_matrix[slice_inds[:,0], slice_inds[:,1]])
 
-        #ref_scores_sliced = ref_scores[slice_inds[:,0], slice_inds[:,1]]
-        #bbox_ind_gt_sliced = bbox_ind_gt[slice_inds[:,0], slice_inds[:,1]]
+        ref_scores_sliced = ref_scores[slice_inds[:,0], slice_inds[:,1]]
+        bbox_ind_gt_sliced = bbox_ind_gt[slice_inds[:,0], slice_inds[:,1]]
         #print('ref_scores_sliced: ', torch.sigmoid(ref_scores_sliced))
         #print('max ref_score: ', torch.max(ref_scores).item())
 
         #print('slice_inds: ', slice_inds.shape)
         
-        #bbox_offset_sliced = bbox_offset_fcn[slice_inds[:,0], slice_inds[:,1], :]
-        #gt_offset_sliced = bbox_offset_gt[slice_inds[:,0], slice_inds[:,1], :]
+        bbox_offset_sliced = bbox_offset_fcn[slice_inds[:,0], slice_inds[:,1], :]
+        gt_offset_sliced = bbox_offset_gt[slice_inds[:,0], slice_inds[:,1], :]
         
         #print('bbox_offset_flat: ', bbox_offset_fcn.shape)
         #print('bbox_offset_gt: ', bbox_offset_gt.shape)
         #print('bbox_offset_sliced: ', bbox_offset_sliced.shape)
         #print('gt_offset_sliced: ', gt_offset_sliced.shape)
         
-        #bbox_offset_loss = F.mse_loss(bbox_offset_sliced, gt_offset_sliced)
+        bbox_offset_loss = F.mse_loss(bbox_offset_sliced, gt_offset_sliced)
         
         #BRYCE CODE
-        return bbox_ind_loss#, bbox_offset_loss
+        #return bbox_ind_loss#, bbox_offset_loss
+        return bbox_ind_loss, bbox_offset_loss
 
 
 class LCGNwrapper():
