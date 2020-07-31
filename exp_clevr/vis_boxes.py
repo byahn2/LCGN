@@ -25,7 +25,7 @@ def main(args):
     print('data: ', len(data))
     image_dir = '/u/byahn2/LCGN/exp_clevr/clevr_locplus_dataset/images/val/'
     img_size = (args.image_height, args.image_width)
-    for i in range(10):#(len(data)):
+    for i in range(len(data)):
         num_zeros = 10 - len(data[i]["image_ID"])
         z = ''
         for n in range(num_zeros):
@@ -43,12 +43,26 @@ def main(args):
         captions = []
         count = 0
         for j in range(len(data[i]["prediction"])):
-            boxes.append(np.array(data[i]["prediction"][j]))
+            original_box = np.array(data[i]["prediction"][j])
+            new_box = np.zeros(4)
+            new_box[0] = original_box[1] # y1 = y
+            new_box[1] = original_box[0] # x1 = x
+            new_box[2] = original_box[1] + original_box[2] # y2 = y + w
+            new_box[3] = original_box[0] + original_box[3] # x2 = x + h
+            #y1, x1, y2, x2   left top - right bottom
+            # x, y, w, h where x,y are for left top
+            boxes.append(new_box)
             labels.append(int(count+j))
             captions.append('pred')
         count = 0
         for j in range(len(data[i]["gt_boxes"])):
-            boxes.append(np.array(data[i]["gt_boxes"][j]))
+            original_box = np.array(data[i]["gt_boxes"][j])
+            new_box = np.zeros(4)
+            new_box[0] = original_box[1] # y1 = y
+            new_box[1] = original_box[0] # x1 = x
+            new_box[2] = original_box[1] + original_box[2] # y2 = y + w
+            new_box[3] = original_box[0] + original_box[3] # x2 = x + h
+            boxes.append(new_box)
             labels.append(int(count+j))
             captions.append('gt')
         
@@ -59,7 +73,7 @@ def main(args):
 
         bboxviz = imgviz.instances2rgb(image=img, bboxes=boxes, labels=labels, captions=captions)
 
-        out_file = osp.join('/u/byahn2/LCGN/exp_clevr/results/visuals/', image_name + '_' + str(i) + '.jpg')
+        out_file = osp.join('/u/byahn2/LCGN/exp_clevr/results/visuals/val' + '_' + str(i) + '.jpg')
         imgviz.io.imsave(out_file, bboxviz)
 
     #Evaluate accuracy based on question type

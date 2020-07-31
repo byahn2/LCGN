@@ -81,7 +81,7 @@ def batch_feat_grid2bbox(ref_ind, out_shape, offset, stride_H, stride_W, feat_H,
     h = y2 - y1 + 1
     bbox = np.zeros(out_shape)
     for i in range(ref_ind.shape[0]):
-            bbox[ref_ind[i,0], ref_ind[i,1], :] = [x1[i], y1[i], w[i], h[i]]
+        bbox[ref_ind[i,0], ref_ind[i,1], :] = [x1[i], y1[i], w[i], h[i]]
     #print('bbox: ', bbox.shape)
     #BRYCE CODE
     return bbox

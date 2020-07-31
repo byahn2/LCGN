@@ -93,7 +93,6 @@ class LCGN(nn.Module):
         # torch.bmm performs a batch matrix-matrix product
         return cmd
 
-    # run for one entity
     # calculates x joint from local features and context features for t-1
     # what are queries, keys, and vals?
     # calculates edge weights
