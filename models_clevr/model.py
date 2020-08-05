@@ -248,27 +248,6 @@ class LCGNnet(nn.Module):
         neg_mean = np.mean(ref_slice_neg.detach().cpu().numpy(), axis=0)
         print('\n Pos Mean: ', pos_mean, ' Neg mean: ', neg_mean)
         
-
-        #calculate ACU
-        #ROC
-        batch_size = ref_scores.shape[0]
-        probabilities = ref_scores.clone().detach().cpu().numpy()
-        gt = gt_scores.detach().cpu().numpy()
-        if batch_size == 1:
-            gt = np.expand_dims(gt, axis=0)
-            probabilities = np.expand_dims(probabilities, axis=0)
-        AUC = 0
-        for b in range(batch_size):
-            fpr = dict() 
-            tpr = dict()
-            roc_auc = dict()
-            fpr[b], tpr[b], _ = roc_curve(gt[b,:].T, probabilities[b,:].T)
-            roc_auc[b] = auc(fpr[b], tpr[b])
-            AUC += roc_auc[b]
-            #print('\nauc is ', roc_auc[b])
-        AUC = AUC / batch_size
-        print('Average roc AUC: ', AUC)
-       
         #for different thresholds, calculate precision and recall
         for thresh in np.arange(0, 1.01, 0.05):
             true_positive = np.sum(ref_slice.detach().cpu().numpy() >= thresh)
@@ -289,13 +268,21 @@ class LCGNnet(nn.Module):
         thresh_classifications[thresh_classifications >= cfg.MATCH_THRESH] = 1
         thresh_classifications[thresh_classifications < cfg.MATCH_THRESH] = 0
         #print('thresh_classifications: ', thresh_classifications)
-        true_positive = np.sum(probabilities >= cfg.MATCH_THRESH)
-        true_negative = np.sum(probabilities < cfg.MATCH_THRESH)
+        true_positive = np.sum(ref_slice.detach().cpu().numpy() >= cfg.MATCH_THRESH)
+        true_negative = np.sum(ref_slice.detach().cpu().numpy() < cfg.MATCH_THRESH)
         false_negative = total_positive - true_positive
         false_positive = total_negative - true_negative
+        print('true_positive: ', true_positive, ' total_positive: ', total_positive, ' false_positive: ', false_positive)
+        print('true_negative: ', true_negative, ' total negative: ', total_negative, ' false_negative: ', false_negative)
         precision = true_positive / (true_positive + false_positive)
         recall = true_positive / (true_positive + false_negative)
 
+        batch_size = ref_scores.shape[0]
+        probabilities = ref_scores.clone().detach().cpu().numpy()
+        gt = gt_scores.detach().cpu().numpy()
+        if batch_size == 1:
+            gt = np.expand_dims(gt, axis=0)
+            probabilities = np.expand_dims(probabilities, axis=0)
         num_gt_pos = np.sum(gt, axis=1)
         #print('num_gt_pos:' , num_gt_pos.shape)
         sorted_probs = np.flip(np.sort(probabilities, axis=1), axis=1)
