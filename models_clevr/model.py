@@ -73,7 +73,7 @@ class LCGNnet(nn.Module):
             self.grounder = GroundeR()
             self.bbox_regression = BboxRegression()
 
-    def forward(self, batch, run_vqa, run_ref):
+    def forward(self, batch, run_vqa, run_ref, train):
         forward_time = time.time()
         batchSize = len(batch['image_feat_batch'])
         questionIndices = torch.from_numpy(
@@ -96,10 +96,6 @@ class LCGNnet(nn.Module):
             bboxOffset = batch['bbox_offset_batch'] 
             bboxBatch = batch['bbox_batch'] 
             
-            #print('initial bboxInd: ', bboxInd.shape)
-            #print('initial bboxOffset: ', bboxOffset.shape)
-            #print('initial bboxBatch: ', bboxBatch.shape)
-            
             # initialize zero matricies for each object in each batch to store target information (these are batch_size x 20 x 4)
             bboxRefScoreGt = torch.zeros(size=(batchSize, torch.max(imagesObjectNum)), dtype=torch.float64).cuda()
             bboxOffsetGt = torch.zeros(size=(batchSize, torch.max(imagesObjectNum), 4), dtype=torch.float32).cuda()
@@ -112,20 +108,10 @@ class LCGNnet(nn.Module):
             box_inds = np.argwhere(bboxInd > -1)[:,1]
             target_inds = bboxInd[bboxInd > -1]
             
-            #print('batch_inds: ', len(batch_inds), ' ', batch_inds)
-            #print('box_inds: ', len(box_inds), ' ', box_inds)
-            #print('target_inds: ', len(target_inds), ' ', target_inds)
-            
             bboxRefScoreGt[batch_inds[:], target_inds[:]] = 1
             bboxOffsetGt[batch_inds[:], target_inds[:], :] = torch.from_numpy(bboxOffset[batch_inds[:], box_inds[:], :].astype(np.float32)).cuda()
             bboxBatchGt[batch_inds[:], target_inds[:], :] = torch.from_numpy(bboxBatch[batch_inds[:], box_inds[:], :].astype(np.int64)).cuda()
 
-            #print('bboxRefScoreGt: ', bboxRefScoreGt.shape)
-            #print('bboxOffsetGt: ', bboxOffsetGt.shape)
-            #print('bboxBatchGt: ', bboxBatchGt.shape)
-        
-        #BRYCE CODE
-        
         #print('build_gt_time: ', time.time() - build_gt_time)
         LSTM_time = time.time()
 
@@ -157,71 +143,162 @@ class LCGNnet(nn.Module):
             })
 
         if run_ref:
-            #BRYCE CODE
-            print('x_out: ', x_out.shape)
-            #create positive and negative sets
-            #pos_set is ground truth set
-            #neg_ind_k has the same number of boxes in each set as the ground truth, but they're chosen randomly
-            #neg_ind_plus has the same boxes as the ground truth plus one extra random one
-            #neg_ind_minus has the same boxes as the ground truth minus one (unless there was only one ground truth box)
-            #do global average pooling on all of them
-            num_gt_pos = torch.sum(bboxRefScoreGt, axis=1)
-            num_obj = x_out.shape[1]
-            feat_dim = x_out.shape[2]
-            pos_set = torch.zeros(batchSize, feat_dim)
-            neg_k_set = torch.zeros_like(pos_set)
-            neg_plus_set = torch.zeros_like(pos_set)
-            neg_minus_set = torch.zeros_like(pos_set)
-            #average pooling
-            for i in range(batchSize):
-                x_i = x_out[i,:,:]
-                k = int(num_gt_pos[i].item())
-                pos_ind = (bboxRefScoreGt[i,:] != 0).nonzero()
-                pos_set[i,:] = (1. / k) * torch.sum(x_out[i, pos_ind[:,0],:], dim=0)
-                #print('pos_ind: ', pos_ind.shape, ' ', pos_ind.dtype, ' ', pos_ind)
-                #print('pos_set: ', pos_set[i,:])
-                
-                neg_ind = (bboxRefScoreGt[i,:] == 0).nonzero()
-                #print('neg_ind: ', neg_ind.shape)
-                neg_ind_k = torch.randint(low=0, high=num_obj, size=(pos_ind.shape[0],1))
-                neg_k_set[i,:] = 1./ k * torch.sum(x_out[i, neg_ind_k[:,0],:], dim=0)
-                #print('neg_ind_k: ', neg_ind_k.shape, ' ', neg_ind_k)
-                #print('neg_k_set: ', neg_k_set[i,:])
-
-                extra_neg = torch.squeeze(neg_ind[torch.randint(low=0, high=neg_ind.shape[0], size=(1,1))], dim=0)
-                neg_ind_plus = torch.cat((pos_ind, extra_neg))
-                neg_plus_set[i,:] = 1. / (k+1) * torch.sum(x_out[i, neg_ind_plus[:,0],:], dim=0)
-                #print('neg_ind_plus: ', neg_ind_plus.shape, ' ', neg_ind_plus)
-                #print('neg_plus_set: ', neg_plus_set[i,:])
-
-                if pos_ind.shape[0] > 1:
-                    neg_ind_minus = pos_ind[:-1].clone()
-                    neg_minus_set[i,:] = 1./ (k-1) * torch.sum(x_out[i, neg_ind_minus[:,0],:], dim=0)
-                    #print('set size > 1: ', neg_minus_set[i,:])
-                else:
-                    neg_minus_set[i,:] = (neg_k_set[i,:] + neg_plus_set[i,:]) * .5
-                    #print('set size = 1: ', neg_minus_set[i,:])
-                #print('neg_ind_minus: ', neg_ind_minus.shape, ' ', neg_ind_minus)
-
-            #calculate ref scores for positive set
-            num_neg_sets = 3
-            input_sets = torch.stack((pos_set, neg_k_set, neg_plus_set, neg_minus_set), dim=1).cuda()
-            #print('input_set: ', input_sets.shape)
-            #print('object_num: ', imagesObjectNum.shape,' ', imagesObjectNum)
-            obj_dim = (num_neg_sets+1) * torch.ones_like(imagesObjectNum)
-            ref_scores = self.grounder(input_sets, vecQuestions, obj_dim)
-            #print('ref_scores: ', ref_scores.shape, ' ', ref_scores)
-            gt_pos_inds = (bboxRefScoreGt !=0).nonzero()
-
-            ref_scores_time = time.time()
             assert cfg.FEAT_TYPE == 'spatial'
+            if train:
+                #BRYCE CODE
+                print('x_out: ', x_out.shape)
+                #create positive and negative sets
+                #pos_set is ground truth set
+                #neg_ind_k has the same number of boxes in each set as the ground truth, but they're chosen randomly
+                #neg_ind_plus has the same boxes as the ground truth plus one extra random one
+                #neg_ind_minus has the same boxes as the ground truth minus one (unless there was only one ground truth box)
+                #do global average pooling on all of them
+                num_gt_pos = torch.sum(bboxRefScoreGt, axis=1)
+                num_obj = x_out.shape[1]
+                feat_dim = x_out.shape[2]
+                pos_set = torch.zeros(batchSize, feat_dim)
+                neg_k_set = torch.zeros_like(pos_set)
+                neg_plus_set = torch.zeros_like(pos_set)
+                neg_minus_set = torch.zeros_like(pos_set)
+                #average pooling
+                for i in range(batchSize):
+                    x_i = x_out[i,:,:]
+                    k = int(num_gt_pos[i].item())
+                    pos_ind = (bboxRefScoreGt[i,:] != 0).nonzero()
+                    pos_set[i,:] = (1. / k) * torch.sum(x_out[i, pos_ind[:,0],:], dim=0)
+                    #print('pos_ind: ', pos_ind.shape, ' ', pos_ind.dtype, ' ', pos_ind)
+                    #print('pos_set: ', pos_set[i,:])
+                    
+                    neg_ind = (bboxRefScoreGt[i,:] == 0).nonzero()
+                    #print('neg_ind: ', neg_ind.shape)
+                    neg_ind_k = torch.randint(low=0, high=num_obj, size=(pos_ind.shape[0],1))
+                    neg_k_set[i,:] = 1./ k * torch.sum(x_out[i, neg_ind_k[:,0],:], dim=0)
+                    #print('neg_ind_k: ', neg_ind_k.shape, ' ', neg_ind_k)
+                    #print('neg_k_set: ', neg_k_set[i,:])
+
+                    extra_neg = torch.squeeze(neg_ind[torch.randint(low=0, high=neg_ind.shape[0], size=(1,1))], dim=0)
+                    neg_ind_plus = torch.cat((pos_ind, extra_neg))
+                    neg_plus_set[i,:] = 1. / (k+1) * torch.sum(x_out[i, neg_ind_plus[:,0],:], dim=0)
+                    #print('neg_ind_plus: ', neg_ind_plus.shape, ' ', neg_ind_plus)
+                    #print('neg_plus_set: ', neg_plus_set[i,:])
+
+                    if pos_ind.shape[0] > 1:
+                        neg_ind_minus = pos_ind[:-1].clone()
+                        neg_minus_set[i,:] = 1./ (k-1) * torch.sum(x_out[i, neg_ind_minus[:,0],:], dim=0)
+                        #print('set size > 1: ', neg_minus_set[i,:])
+                    else:
+                        neg_minus_set[i,:] = (neg_k_set[i,:] + neg_plus_set[i,:]) * .5
+                        #print('set size = 1: ', neg_minus_set[i,:])
+                    #print('neg_ind_minus: ', neg_ind_minus.shape, ' ', neg_ind_minus)
+
+                #calculate ref scores for positive set
+                num_neg_sets = 3
+                input_sets = torch.stack((pos_set, neg_k_set, neg_plus_set, neg_minus_set), dim=1).cuda()
+                #print('input_set: ', input_sets.shape)
+                #print('object_num: ', imagesObjectNum.shape,' ', imagesObjectNum)
+                obj_dim = (num_neg_sets+1) * torch.ones_like(imagesObjectNum)
+                ref_scores = self.grounder(input_sets, vecQuestions, obj_dim)
+                #print('ref_scores: ', ref_scores.shape, ' ', ref_scores)
+                set_box_inds = (bboxRefScoreGt !=0).nonzero()
+            
+            else:
+                num_beams = 3
+                num_obj = x_out.shape[1]
+                feat_dim = x_out.shape[2]
+                # current_set_feat = the features of the current k sets (k x batchSize x feat_dim)
+                current_set_feat = torch.zeros((num_beams, batchSize, feat_dim))
+                #new_set_feat = the features of the sets we're exploring (k x batchSize x num_obj x feat_dim)
+                new_set_feat = torch.zeros((batchSize, num_obj, feat_dim))
+                #max_probs: the max probabilities for the current k sets (k x batchSize)
+                max_probs = torch.zeros((num_beams, batchSize))
+                #new_inds = the indices of the top k of the sets we're exploring (k x batchSize x 2)
+                new_inds = torch.zeros((num_beams, batchSize, 2), dtype=int)
+                #new_probs = the top k probabilities of the sets we're exploring (k x batchSize)
+                new_probs = torch.zeros((num_beams, batchSize))
+                #all_new_probs = the output of groundr (batchSize x num_obj)
+                all_new_probs = torch.zeros((batchSize, num_obj))
+                # current_box_inds = the indices of the boxes in the current k sets (k x batchSize x num_rounds-1)
+                current_box_inds = torch.zeros((num_beams, batchSize, 2), dtype=int)
+                #new_box_inds = the indices of the boxes in the top k sets we're exploring
+                new_box_inds = torch.zeros((num_beams, batchSize, 2), dtype=int)
+                #needed for groundr
+                obj_dim = num_beams * num_obj * torch,ones_like(imagesObjectNum)
+                #unfinshed keeps track of which indices have probabilities still increasing
+                unfinished = torch.arrange((batchSize), dtype=int)
+                finished = torch.zeros((),dtype=int)
+                #num_rounds = the number of times we've searched and the number of indices in the set
+                num_rounds = 1
+                # probabilities: the probabilities of all the sets we're exploring (initially batchSize x 196 but will be k x batchSize x 196)
+                #get the probabilities of each box
+                probabilities = self.groundr(x_out, vecQuestions, imagesObjectNum)
+                #find the top k probabilities
+                new_probs, new_inds = torch.topk(input=probabilities, k=num_beams, dim=1)
+                #keep track of the features, probabilities, and indices of these boxes
+                max_probs = new_probs
+                current_box_inds = new_inds
+                current_set_feat = x_out[current_box_inds]
+                #repeat until all samples are complete:
+                while len(unfinished) > 0:
+                    old_max_probs = max_probs.clone()
+                    for k in range(num_beams):
+                        #for each of these, combine with all other boxes
+                        new_set_feat = (1./num_rounds) * (current_set_feat[k,:,:] + x_out)
+                        #calculate the probabilities of all of these sets
+                        all_new_probs = self.groundr(new_set_feat, vecQuestions, imagesObjectNum)
+                        #set probabilities of repeats to 0
+                        all_new_probs[current_box_inds[k,:,:]] = 0
+                        #find the top three probabilities for each k along the number of objects
+                        new_probs, new_inds = torch.topk(input=all_new_probs, k=num_beams, dim=1)
+                        #compare with max_probs:
+                        #if the probability has increased, update current box_inds, current_set_feat, and new_max_probs
+                        increase_inds = ((new_probs - max_probs)>0).nonzero()
+                        max_probs[increase_inds] = new_probs[increase_inds]
+                        current_set_feat = new_set_feat[new_inds[increase_inds]]
+                        #current_box_inds needs to include the old indices as well, so this needs to be appended rather than replaced 
+                        new_box_inds = new_inds[increase_inds]
+                    #for each sample, if the probability has decreased, save the indices of the boxes in the current set to the output
+                    decrease_inds = ((old_max_probs - max_probs)>0).nonzero()
+                    increase_inds = ((old_max_probs - max_probs)<=0).nonzero()
+                    #fix this
+                    unfinished_increase_inds = torch.unique(torch.cat(increase_inds, unfinished))
+                    unfinished_decrease_inds = torch.unique(torch.cat(decrease_inds, unfinished))
+                    output_box_inds = torch.append(output_box_inds, current_box_inds[unfinished_decrease_inds])
+                    #keep track of which samples are complete
+                    finished = torch.append(finished, unfinished_decrease_inds)
+                    unfinished = unfinished.remove(unfinished_decrease_inds)
+                    #for those where the probability increased, save the new probabilites, indices, and features and repeat
+                    current_box_inds.append(new_box_inds[unfinished_increase_inds])
+                #set box_inds is equal to the output box indices
+                set_box_inds = output_box_inds
+
+                
+
+
+
+
+                for k in range(num_beams):
+                    set_features[k,:,:] = x_out[:,current_set_inds[:,k]:]
+                num_rounds = 1
+                while torch.max(new_probs) < torch.max(max_probs):
+                    for k in range(num_beams):
+                        # set features = k x batch size x 512, new_features = k x batch_size x 196 x 512
+                        new_features[k,:,:,:] = (1./num_rounds) * (set_features[k,:,:] + x_out[:,:,:])
+                        # k_probs =  k x batch_size x 196
+                        k_probs[k,:,:] = self.groundr(new_features[k,:,:,:], vecQuestions, obj_dim)
+                        # probability of repeats = 0
+                        k_probs[k,:, current_set_inds[:,k]] = 0
+
+                    num_rounds += 1
+                max_box_inds = current_set_inds[:,argmax(max_probs)]
+                set_box_inds = max_box_inds
+
             
             # calculate bbox_offset (this was not trained)
-            bbox_offset, bbox_offset_fcn = self.bbox_regression(x_out, gt_pos_inds)
+            bbox_offset, bbox_offset_fcn = self.bbox_regression(x_out, set_box_inds)
             
             # bbox predictions returns a matrix that is batch_size x num_boxes x 4.  
             # it has the predicted x,y,w,h of all bounding boxes with matching scores higher than the threshold, all other coordinates are 0 
-            bbox_predictions = batch_feat_grid2bbox(gt_pos_inds.detach().cpu().numpy(), bboxBatchGt.shape,bbox_offset.detach().cpu().numpy(),cfg.IMG_H / cfg.H_FEAT, cfg.IMG_W / cfg.W_FEAT,cfg.H_FEAT, cfg.W_FEAT)
+            bbox_predictions = batch_feat_grid2bbox(set_box_inds.detach().cpu().numpy(), bboxBatchGt.shape,bbox_offset.detach().cpu().numpy(),cfg.IMG_H / cfg.H_FEAT, cfg.IMG_W / cfg.W_FEAT,cfg.H_FEAT, cfg.W_FEAT)
             
             #calculate the loss
             loss_time = time.time()
@@ -230,7 +307,7 @@ class LCGNnet(nn.Module):
             
             # for normal version, calculate box ious to use as a metric
             bbox_ious = batch_bbox_iou(bbox_predictions, bboxBatchGt, bboxRefScoreGt)
-            bbox_num_correct = np.sum(bbox_ious >= cfg.bbox_iou_thresh)
+            bbox_num_correct = np.sum(bbox_ious >= cfg.BBOX_IOU_THRESH)
             
             # calculate number of positives, negatives, and auc using function
             #true_positive, total_positive, true_negative, total_negative, precision, top_accuracy_list, auc, f1 = self.calc_correct(bboxrefscoregt, ref_scores)
@@ -242,7 +319,7 @@ class LCGNnet(nn.Module):
             res.update({
                 #"accuracy_list" : top_accuracy_list,
                 "bbox_predictions": bbox_predictions,
-                "gt_coords": bboxbatchgt,
+                "gt_coords": bboxBatchGt,
                 "bbox_ious": bbox_ious,
                 #"true_positive": int(true_positive),
                 #"true_negative": int(true_negative),
@@ -259,7 +336,7 @@ class LCGNnet(nn.Module):
                 #"pr_f1": f1
             #bryce code
             })
-        res.update({"batch_size": int(batchsize), "loss": loss})
+        res.update({"batch_size": int(batchSize), "loss": loss})
         print('forward time: ', time.time() - forward_time)
         return res
 
@@ -460,7 +537,7 @@ class LCGNwrapper():
             self.optimizer.zero_grad()
             #print('start_time: ', time.time()-start_time)
             forward_time = time.time()
-            batch_res = self.model.forward(batch, run_vqa, run_ref)
+            batch_res = self.model.forward(batch, run_vqa, run_ref, train)
             #print('forward_time: ', time.time() - forward_time)
             backward_time = time.time()
             loss = batch_res['loss']
@@ -479,6 +556,6 @@ class LCGNwrapper():
         else:
             not_train_time = time.time()
             with torch.no_grad():
-                batch_res = self.model.forward(batch, run_vqa, run_ref)
+                batch_res = self.model.forward(batch, run_vqa, run_ref, train)
             #print('not_train_time: ', time.time()-not_train_time)
         return batch_res
