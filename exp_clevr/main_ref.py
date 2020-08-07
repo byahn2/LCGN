@@ -84,7 +84,7 @@ def run_train_on_data(model, data_reader_train, lr_start,
 
         record_time = time.time()
         correct += batch_res['bbox_num_correct']
-        total += batch_res['possible_correct']
+        total += batch_res['possible_correct_boxes']
         #print('correct: ', correct, ' total: ', total, ' accuracy: ', correct/total)
         #BRYCE CODE
         loss_sum += batch_res['loss'].item()

@@ -206,92 +206,111 @@ class LCGNnet(nn.Module):
                 num_obj = x_out.shape[1]
                 feat_dim = x_out.shape[2]
                 # current_set_feat = the features of the current k sets (k x batchSize x feat_dim)
-                current_set_feat = torch.zeros((num_beams, batchSize, feat_dim))
+                current_set_feat = torch.zeros((batchSize, num_beams, feat_dim))
                 #new_set_feat = the features of the sets we're exploring (k x batchSize x num_obj x feat_dim)
                 new_set_feat = torch.zeros((batchSize, num_obj, feat_dim))
-                #max_probs: the max probabilities for the current k sets (k x batchSize)
-                max_probs = torch.zeros((num_beams, batchSize))
-                #new_inds = the indices of the top k of the sets we're exploring (k x batchSize x 2)
-                new_inds = torch.zeros((num_beams, batchSize, 2), dtype=int)
-                #new_probs = the top k probabilities of the sets we're exploring (k x batchSize)
-                new_probs = torch.zeros((num_beams, batchSize))
+                #max_probs: the max probabilities for the current k sets (batchSize x k)
+                k_max_probs = torch.zeros((batchSize, num_beams))
+                #new_inds = the indices of the top k of the sets we're exploring (batchSize x k)
+                k_new_inds = torch.zeros((batchSize, num_beams), dtype=int)
+                #new_probs = the top k probabilities of the sets we're exploring (batchSize x k)
+                k_new_probs = torch.zeros((batchSize, num_beams))
                 #all_new_probs = the output of groundr (batchSize x num_obj)
                 all_new_probs = torch.zeros((batchSize, num_obj))
                 # current_box_inds = the indices of the boxes in the current k sets (k x batchSize x num_rounds-1)
-                current_box_inds = torch.zeros((num_beams, batchSize, 2), dtype=int)
+                current_box_inds = torch.zeros((batchSize, num_beams, 2), dtype=int)
                 #new_box_inds = the indices of the boxes in the top k sets we're exploring
-                new_box_inds = torch.zeros((num_beams, batchSize, 2), dtype=int)
+                k_new_box_inds = torch.zeros((num_beams, batchSize, 2), dtype=int)
                 #needed for groundr
-                obj_dim = num_beams * num_obj * torch,ones_like(imagesObjectNum)
+                #obj_dim = num_beams * num_obj * torch,ones_like(imagesObjectNum)
                 #unfinshed keeps track of which indices have probabilities still increasing
-                unfinished = torch.arrange((batchSize), dtype=int)
-                finished = torch.zeros((),dtype=int)
+                unfinished = torch.arange((batchSize), dtype=int).cuda()
+                finished = torch.zeros((),dtype=int).cuda()
                 #num_rounds = the number of times we've searched and the number of indices in the set
                 num_rounds = 1
                 # probabilities: the probabilities of all the sets we're exploring (initially batchSize x 196 but will be k x batchSize x 196)
                 #get the probabilities of each box
-                probabilities = self.groundr(x_out, vecQuestions, imagesObjectNum)
+                probabilities = self.grounder(x_out, vecQuestions, imagesObjectNum)
+                print('probabilities: ', probabilities.shape)
                 #find the top k probabilities
-                new_probs, new_inds = torch.topk(input=probabilities, k=num_beams, dim=1)
+                k_new_probs, k_new_inds = torch.topk(input=probabilities, k=num_beams, dim=1)
+                print('k_new_probs: ', k_new_probs.shape)
+                print('k_new_inds: ', k_new_inds.shape)
                 #keep track of the features, probabilities, and indices of these boxes
-                max_probs = new_probs
-                current_box_inds = new_inds
-                current_set_feat = x_out[current_box_inds]
+                k_max_probs = k_new_probs
+                k_new_box_inds = k_new_inds
+                current_box_inds[:,:,0] = k_new_inds / batchSize
+                current_box_inds[:,:,1] = k_new_inds % batchSize
+                print('current_box_inds: ', current_box_inds.shape)
+                current_set_feat[:,:,:] = x_out[current_box_inds[:,:,0], current_box_inds[:,:,1], :]
+                print('current_set_feat: ', current_set_feat.shape)
+                max_num_rounds = 30
+                num_rounds = 1
                 #repeat until all samples are complete:
-                while len(unfinished) > 0:
-                    old_max_probs = max_probs.clone()
+                while len(unfinished) > 0 or num_rounds < max_num_rounds:
+                    old_max_probs = k_max_probs.clone()
                     for k in range(num_beams):
                         #for each of these, combine with all other boxes
-                        new_set_feat = (1./num_rounds) * (current_set_feat[k,:,:] + x_out)
+                        print('current_set_feat_k: ', current_set_feat[:,k,:].unsqueeze(1).shape)
+                        expanded = (current_set_feat[:,k,:].unsqueeze(1).expand((-1,num_obj,-1)))
+                        print('expanded: ', expanded.shape) 
+                        print('x_out: ', x_out.is_cuda)
+                        new_set_feat = (1./num_rounds) * (expanded.cuda() + x_out)
+                        print('new_set_feat: ', new_set_feat.shape)
                         #calculate the probabilities of all of these sets
-                        all_new_probs = self.groundr(new_set_feat, vecQuestions, imagesObjectNum)
+                        all_new_probs = self.grounder(new_set_feat, vecQuestions, imagesObjectNum)
+                        print('all_new_probs: ', all_new_probs.shape)
                         #set probabilities of repeats to 0
-                        all_new_probs[current_box_inds[k,:,:]] = 0
+                        all_new_probs[current_box_inds[:,k,:]] = 0
                         #find the top three probabilities for each k along the number of objects
-                        new_probs, new_inds = torch.topk(input=all_new_probs, k=num_beams, dim=1)
+                        k_new_probs, k_new_inds = torch.topk(input=all_new_probs, k=num_beams, dim=1)
+                        print('k_new_probs: ', k_new_probs.shape)
+                        print('k_new_inds: ', k_new_inds.shape)
                         #compare with max_probs:
                         #if the probability has increased, update current box_inds, current_set_feat, and new_max_probs
-                        increase_inds = ((new_probs - max_probs)>0).nonzero()
-                        max_probs[increase_inds] = new_probs[increase_inds]
-                        current_set_feat = new_set_feat[new_inds[increase_inds]]
+                        increase_inds = ((k_new_probs - k_max_probs)>0).nonzero()
+                        print('increase_inds: ', increase_inds.shape)
+                        k_max_probs[increase_inds] = k_new_probs[increase_inds]
+                        print('k_max_probs: ', k_max_probs.shape)
                         #current_box_inds needs to include the old indices as well, so this needs to be appended rather than replaced 
-                        new_box_inds = new_inds[increase_inds]
+                        #CHECK THIS
+                        #new_box_inds should be the indices for the boxes related to max_probs
+                        k_new_box_inds[increase_inds] = k_new_inds[increase_inds]
+                        print('k_new_box_inds: ', k_new_box_inds.shape)
+                        # THIS NEEDS TO BE FIXED!!!
+                        current_set_feat[:,:,:] = new_set_feat[(k_new_box_inds / batchSize), (k_new_box_inds % batchSize),:]
+                        print('current_set_feat: ', current_set_feat.shape)
                     #for each sample, if the probability has decreased, save the indices of the boxes in the current set to the output
-                    decrease_inds = ((old_max_probs - max_probs)>0).nonzero()
-                    increase_inds = ((old_max_probs - max_probs)<=0).nonzero()
-                    #fix this
-                    unfinished_increase_inds = torch.unique(torch.cat(increase_inds, unfinished))
-                    unfinished_decrease_inds = torch.unique(torch.cat(decrease_inds, unfinished))
+                    max_1_old = torch.max(old_max_probs, dim=1)[0]
+                    max_1_new = torch.max(k_max_probs, dim=1)[0]
+                    print('max_1_old: ', max_1_old.shape, ' max_1_new: ', max_1_new.shape)
+                    difference_in_max_1 = max_1_old - max_1_new
+                    print('difference_in_max_1: ', difference_in_max_1.shape)
+                    #decrease_inds is the indices of the samples where the maximum probability has decreased.  Increase_inds is where it has increased.  The lengths of these sum to batchSize
+                    decrease_inds = torch.squeeze((difference_in_max_1 > 0).nonzero())
+                    increase_inds = torch.squeeze((difference_in_max_1 <= 0).nonzero())
+                    print('decrease_inds: ', decrease_inds.shape, ' ', decrease_inds.is_cuda, ' increase_inds: ', increase_inds.shape, ' ', increase_inds.is_cuda)
+                    #unfinished decrease_inds should be the intersections of decrease_inds and unfinished 
+                    unfinished_decrease_inds = torch.from_numpy(np.intersect1d(decrease_inds.detach().cpu().numpy(), unfinished.detach().cpu().numpy())).cuda()
+                    unfinished_increase_inds = torch.from_numpy(np.intersect1d(increase_inds.detach().cpu().numpy(), unfinished.detach().cpu().numpy())).cuda()
+                    print('unfinished_decrease_inds: ', unfinished_decrease_inds.shape, ' unfinished_increase_inds: ', unfinished_increase_inds.shape)
                     output_box_inds = torch.append(output_box_inds, current_box_inds[unfinished_decrease_inds])
+                    print('output_box_inds: ', output_box_inds.shape)
                     #keep track of which samples are complete
                     finished = torch.append(finished, unfinished_decrease_inds)
                     unfinished = unfinished.remove(unfinished_decrease_inds)
+                    print('finished: ', len(finished), ' ', finished)
+                    print('unfinished: ', len(unfinished), ' ', unfinished)
+                    print('total: ', len(finished) + len(unfinished))
                     #for those where the probability increased, save the new probabilites, indices, and features and repeat
-                    current_box_inds.append(new_box_inds[unfinished_increase_inds])
+                    #we want append_boxes to be num_total_boxes x 3
+                    append_boxes = k_new_box_inds[unfinished_increase_inds, :, :]
+                    print('append_boxes: ', append_boxes.shape)
+                    current_box_inds.append(k_new_box_inds[unfinished_increase_inds])
+                    pause
+                    num_rounds += 1
                 #set box_inds is equal to the output box indices
                 set_box_inds = output_box_inds
-
-                
-
-
-
-
-                for k in range(num_beams):
-                    set_features[k,:,:] = x_out[:,current_set_inds[:,k]:]
-                num_rounds = 1
-                while torch.max(new_probs) < torch.max(max_probs):
-                    for k in range(num_beams):
-                        # set features = k x batch size x 512, new_features = k x batch_size x 196 x 512
-                        new_features[k,:,:,:] = (1./num_rounds) * (set_features[k,:,:] + x_out[:,:,:])
-                        # k_probs =  k x batch_size x 196
-                        k_probs[k,:,:] = self.groundr(new_features[k,:,:,:], vecQuestions, obj_dim)
-                        # probability of repeats = 0
-                        k_probs[k,:, current_set_inds[:,k]] = 0
-
-                    num_rounds += 1
-                max_box_inds = current_set_inds[:,argmax(max_probs)]
-                set_box_inds = max_box_inds
-
             
             # calculate bbox_offset (this was not trained)
             bbox_offset, bbox_offset_fcn = self.bbox_regression(x_out, set_box_inds)
