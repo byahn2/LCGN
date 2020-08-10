@@ -144,8 +144,8 @@ def run_eval_on_data(model, data_reader_eval, pred=False):
         total += batch_res['possible_correct_boxes']
         #BRYCE CODE
         loss_sum += batch_res['loss'].item()
-        AUC_sum += batch_res['pr_AUC']
-        f1_sum += batch_res['pr_f1']
+        #AUC_sum += batch_res['pr_AUC']
+        #f1_sum += batch_res['pr_f1']
         top_accuracy_sum += batch_res['top_accuracy']
         batch_num += 1
         #BRYCE CODE
@@ -156,9 +156,9 @@ def run_eval_on_data(model, data_reader_eval, pred=False):
         'correct': correct,
         'total': total,
         'box_accuracy': float(correct*1./total),
-        'top_accuracy': top_accuracy/batch_num,
-        'pr_AUC': float(AUC_sum/batch_num),
-        'pr_f1': float(f1_sum/batch_num),
+        'top_accuracy': top_accuracy_sum/batch_num,
+        #'pr_AUC': float(AUC_sum/batch_num),
+        #'pr_f1': float(f1_sum/batch_num),
         'loss': loss_sum/batch_num,
         'predictions': predictions}
     return eval_res
