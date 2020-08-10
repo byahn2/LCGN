@@ -95,10 +95,6 @@ class LCGNnet(nn.Module):
             bboxOffset = batch['bbox_offset_batch'] 
             bboxBatch = batch['bbox_batch'] 
             
-            #print('initial bboxInd: ', bboxInd.shape)
-            #print('initial bboxOffset: ', bboxOffset.shape)
-            #print('initial bboxBatch: ', bboxBatch.shape)
-            
             # initialize zero matricies for each object in each batch to store target information (these are batch_size x 20 x 4)
             bboxRefScoreGt = torch.zeros(size=(batchSize, torch.max(imagesObjectNum)), dtype=torch.float64).cuda()
             bboxOffsetGt = torch.zeros(size=(batchSize, torch.max(imagesObjectNum), 4), dtype=torch.float32).cuda()
@@ -111,20 +107,10 @@ class LCGNnet(nn.Module):
             box_inds = np.argwhere(bboxInd > -1)[:,1]
             target_inds = bboxInd[bboxInd > -1]
             
-            #print('batch_inds: ', len(batch_inds), ' ', batch_inds)
-            #print('box_inds: ', len(box_inds), ' ', box_inds)
-            #print('target_inds: ', len(target_inds), ' ', target_inds)
-            
             bboxRefScoreGt[batch_inds[:], target_inds[:]] = 1
             bboxOffsetGt[batch_inds[:], target_inds[:], :] = torch.from_numpy(bboxOffset[batch_inds[:], box_inds[:], :].astype(np.float32)).cuda()
             bboxBatchGt[batch_inds[:], target_inds[:], :] = torch.from_numpy(bboxBatch[batch_inds[:], box_inds[:], :].astype(np.int64)).cuda()
 
-            #print('bboxRefScoreGt: ', bboxRefScoreGt.shape)
-            #print('bboxOffsetGt: ', bboxOffsetGt.shape)
-            #print('bboxBatchGt: ', bboxBatchGt.shape)
-        
-        #BRYCE CODE
-        
         #print('build_gt_time: ', time.time() - build_gt_time)
         LSTM_time = time.time()
 
@@ -162,15 +148,9 @@ class LCGNnet(nn.Module):
             
             #calculate ref_scores
             ref_scores = torch.sigmoid(self.grounder(x_out, vecQuestions, imagesObjectNum))
-            #print('ref_scores_time: ', time.time()-ref_scores_time)
-            #print('ref_scores from groundr: ', ref_scores.shape)
-            
+
             # calculate bbox_offset (this was not trained)
             bbox_offset, bbox_offset_fcn, ref_inds = self.bbox_regression(x_out, ref_scores)
-            
-            #print('bbox_offset: ', bbox_offset.shape)
-            #print('bbox_offset_fcn: ', bbox_offset_fcn.shape)
-            #print('ref_inds: ', ref_inds.shape)
             
             # bbox predictions returns a matrix that is batch_size x num_boxes x 4.  
             # It has the predicted x,y,w,h of all bounding boxes with matching scores higher than the threshold, all other coordinates are 0 
@@ -195,12 +175,6 @@ class LCGNnet(nn.Module):
             # calculate number of positives, negatives, and AUC using function
             true_positive, total_positive, true_negative, total_negative, precision, top_accuracy_list, AUC, f1 = self.calc_correct(bboxRefScoreGt, ref_scores)
             
-            #print('bbox_predictions_above threshold: ', bbox_predictions)
-            #print('bbox_predictions: ', bbox_predictions[slice_inds[:,0], slice_inds[:,1], :])
-            #print(bbox_predictions[ref_inds[0,0], ref_inds[0,1], :])
-            #print(bboxBatchGt[ref_inds[0,0], ref_inds[0,1], :])
-            #print('bbox_predictions in model.py: ', bbox_predictions.shape)
-
             res_update_time = time.time()
             possible_correct = float(bboxRefScoreGt.shape[0]*bboxRefScoreGt.shape[1])
             possible_correct_boxes = torch.sum(bboxRefScoreGt).item()
@@ -232,17 +206,21 @@ class LCGNnet(nn.Module):
     #BRYCE CODE
     def calc_correct(self, gt_scores, ref_scores):
         calc_correct_time = time.time()
-        
+        max_inds = torch.argmax(ref_scores, dim=1)
+        ref_scores_new = torch.zeros_like(ref_scores)
+        ref_scores_new[max_inds] = 1
+        print('max_ref_scores: ', torch.max(ref_scores_new, dim=1))
+        print('min_ref_scores: ', ref_scores)
         # slice inds is the indices where the ground truth positives are
         slice_inds = (gt_scores !=0).nonzero()
         total_positive = slice_inds.shape[0]
         #print('total_positive: ', total_positive)
-        ref_slice = ref_scores[slice_inds[:,0], slice_inds[:,1]]
+        ref_slice = ref_scores_new[slice_inds[:,0], slice_inds[:,1]]
         # slice_inds_neg is the indices where the ground truth negatives are
         slice_inds_neg = (gt_scores == 0).nonzero()
         total_negative = slice_inds_neg.shape[0]
         #print('total_negative: ', total_negative)
-        ref_slice_neg = ref_scores[slice_inds_neg[:,0], slice_inds_neg[:,1]]
+        ref_slice_neg = ref_scores_new[slice_inds_neg[:,0], slice_inds_neg[:,1]]
         #the means of the values for the probabilities at gt positive and gt negative indiceis
         pos_mean = np.mean(ref_slice.detach().cpu().numpy(), axis=0)
         neg_mean = np.mean(ref_slice_neg.detach().cpu().numpy(), axis=0)
@@ -263,7 +241,7 @@ class LCGNnet(nn.Module):
             print('CORRECT: ', true_negative + true_positive, ' INCORRECT: ', gt_scores.shape[0]*gt_scores.shape[1]-(true_negative + true_positive))
             print('Accuracy: ', (true_negative + true_positive) / (gt_scores.shape[0]*gt_scores.shape[1]))
         
-        probabilities = ref_scores.clone().detach().cpu().numpy()
+        probabilities = ref_scores_new.clone().detach().cpu().numpy()
         thresh_classifications = probabilities.copy()
         thresh_classifications[thresh_classifications >= cfg.MATCH_THRESH] = 1
         thresh_classifications[thresh_classifications < cfg.MATCH_THRESH] = 0
@@ -278,7 +256,7 @@ class LCGNnet(nn.Module):
         recall = true_positive / (true_positive + false_negative)
 
         batch_size = ref_scores.shape[0]
-        probabilities = ref_scores.clone().detach().cpu().numpy()
+        probabilities = ref_scores_new.clone().detach().cpu().numpy()
         gt = gt_scores.detach().cpu().numpy()
         if batch_size == 1:
             gt = np.expand_dims(gt, axis=0)
