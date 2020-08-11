@@ -150,6 +150,7 @@ def run_eval_on_data(model, data_reader_eval, pred=False):
         batch_num += 1
         #BRYCE CODE
         print('\rEval S %d: avgL=%.4f, avgA=%.4f' % (total, loss_sum/batch_num, correct/total), end='')
+        #print('\rEval S %d: avgL=%.4f, avgA=%.4f' % (total, loss_sum/batch_num, top_accuracy_sum/batch_num), end='')
         #BRYCE CODE
     #print('')
     eval_res = {
