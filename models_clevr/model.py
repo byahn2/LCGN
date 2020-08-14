@@ -75,6 +75,8 @@ class LCGNnet(nn.Module):
 
     def forward(self, batch, run_vqa, run_ref):
         forward_time = time.time()
+        #print(torch.cuda.current_device())
+        #print(torch.cuda.is_available())
         batchSize = len(batch['image_feat_batch'])
         questionIndices = torch.from_numpy(
             batch['input_seq_batch'].astype(np.int64)).cuda()

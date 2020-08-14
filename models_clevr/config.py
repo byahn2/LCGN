@@ -15,7 +15,7 @@ cfg = __C
 __C.train = False
 
 __C.EXP_NAME = '<fill-with-filename>'
-__C.GPUS = '2'
+__C.GPUS = '0'
 
 __C.SNAPSHOT_FILE = './exp_clevr/pytorch_ckpt/%s/%04d.ckpt'
 
