@@ -163,26 +163,18 @@ class LCGNnet(nn.Module):
             #calculate ref_scores
             ref_scores = torch.sigmoid(self.grounder(x_out, vecQuestions, imagesObjectNum))
             #print('ref_scores_time: ', time.time()-ref_scores_time)
-            #print('ref_scores from groundr: ', ref_scores.shape)
             
             # calculate bbox_offset (this was not trained)
             bbox_offset, bbox_offset_fcn, ref_inds = self.bbox_regression(x_out, ref_scores)
             
-            #print('bbox_offset: ', bbox_offset.shape)
-            #print('bbox_offset_fcn: ', bbox_offset_fcn.shape)
-            #print('ref_inds: ', ref_inds.shape)
-            
             # bbox predictions returns a matrix that is batch_size x num_boxes x 4.  
             # It has the predicted x,y,w,h of all bounding boxes with matching scores higher than the threshold, all other coordinates are 0 
             bbox_prediction_time=time.time()
-            bbox_predictions = batch_feat_grid2bbox(ref_inds, bboxBatchGt.shape,bbox_offset.detach().cpu().numpy(),cfg.IMG_H / cfg.H_FEAT, cfg.IMG_W / cfg.W_FEAT,cfg.H_FEAT, cfg.W_FEAT)
+            bbox_predictions = batch_feat_grid2bbox(ref_inds.detach().cpu().numpy(), bboxBatchGt.shape,bbox_offset.detach().cpu().numpy(),cfg.IMG_H / cfg.H_FEAT, cfg.IMG_W / cfg.W_FEAT,cfg.H_FEAT, cfg.W_FEAT)
             #print('bbox_prediction_time: ', time.time()-bbox_prediction_time)
-            #DEBUG
             
             #calculate the loss
             loss_time = time.time()
-            #bbox_ind_loss = self.add_bbox_loss_op(ref_scores, bboxRefScoreGt)
-            #loss += (bbox_ind_loss) #DEBUG  + bbox_offset_loss) #DEBUG
             bbox_ind_loss, bbox_offset_loss = self.add_bbox_loss_op(ref_scores, bbox_offset_fcn, bboxRefScoreGt, bboxOffsetGt)
             loss += (bbox_ind_loss + bbox_offset_loss)
             #print('loss_time: ', time.time()-loss_time)
@@ -195,12 +187,6 @@ class LCGNnet(nn.Module):
             # calculate number of positives, negatives, and AUC using function
             true_positive, total_positive, true_negative, total_negative, precision, top_accuracy_list, AUC, f1 = self.calc_correct(bboxRefScoreGt, ref_scores)
             
-            #print('bbox_predictions_above threshold: ', bbox_predictions)
-            #print('bbox_predictions: ', bbox_predictions[slice_inds[:,0], slice_inds[:,1], :])
-            #print(bbox_predictions[ref_inds[0,0], ref_inds[0,1], :])
-            #print(bboxBatchGt[ref_inds[0,0], ref_inds[0,1], :])
-            #print('bbox_predictions in model.py: ', bbox_predictions.shape)
-
             res_update_time = time.time()
             possible_correct = float(bboxRefScoreGt.shape[0]*bboxRefScoreGt.shape[1])
             possible_correct_boxes = torch.sum(bboxRefScoreGt).item()
@@ -230,9 +216,12 @@ class LCGNnet(nn.Module):
         return res
 
     #BRYCE CODE
-    def calc_correct(self, gt_scores, ref_scores):
+    def calc_correct(self, gt_scores, ref_scores_original):
         calc_correct_time = time.time()
-        
+        ref_scores = ref_scores_original.clone() 
+        max_inds = torch.argmax(ref_scores, dim=1).squeeze()
+        ref_scores[torch.arange(ref_scores.shape[0]), max_inds] = 1
+
         # slice inds is the indices where the ground truth positives are
         slice_inds = (gt_scores !=0).nonzero()
         total_positive = slice_inds.shape[0]
@@ -376,8 +365,6 @@ class LCGNnet(nn.Module):
         #print('weight_matrix: ', weight_matrix[0,:])
         #print(weight_matrix[1,:])
         bbox_ind_loss = F.binary_cross_entropy_with_logits(input=ref_scores, target=bbox_ind_gt, weight=weight_matrix, reduction='mean')
-         
-        bbox_ind_loss = F.binary_cross_entropy_with_logits(ref_scores, bbox_ind_gt)
         #print('\nref_scores: ', ref_scores.view(-1))
         #print('gt: ', bbox_ind_gt.view(-1))
         #print('gt size: ', bbox_ind_gt.shape)

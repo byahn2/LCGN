@@ -34,20 +34,16 @@ class BboxRegression(nn.Module):
         super().__init__()
         self.bbox_offset_fcn = ops.Linear(cfg.CTX_DIM, 4)
 
-    def forward(self, x_out, probabilities):
+    def forward(self, x_out, ref_scores):
         bbox_offset_fcn = self.bbox_offset_fcn(x_out)
+        probabilities = ref_scores.clone()
+        max_inds = torch.argmax(probabilities, dim=1).squeeze()
+        probabilities[torch.arange(probabilities.shape[0]), max_inds] = 1
         #BRYCE CODE
         #print('BboxRegression')
         #print('bbox_offset_fcn: ', bbox_offset_fcn.shape)
         assert len(x_out.size()) == 3
-        slice_inds = np.argwhere(probabilities.detach().cpu().numpy() > cfg.MATCH_THRESH)
-        if slice_inds.size == 0:
-            #print(' none exceed max thresh')
-            box_inds = torch.argmax(probabilities, dim=1, )
-            slice_inds = np.empty((probabilities.shape[0],2), dtype=int)
-            slice_inds[:,0] = np.arange(0, 64)
-            slice_inds[:,1] = box_inds.detach().cpu().numpy()
-            #print('slice_inds: ', slice_inds.shape)
+        slice_inds = (probabilities > cfg.MATCH_THRESH).nonzero()
         #print('slice_inds: ', slice_inds.shape)
         #print(slice_inds)
         bbox_offset = bbox_offset_fcn[slice_inds[:,0], slice_inds[:,1], :]
