@@ -52,34 +52,34 @@ def run_train_on_data(model, data_reader_train, lr_start,
             snapshot_file = cfg.SNAPSHOT_FILE % (cfg.EXP_NAME, n_epoch)
             save_model_time = time.time()
             torch.save(model.state_dict(), snapshot_file)
-            #print('\nsave_model_time: ', time.time() - save_model_time)
+            print('\nsave_model_time: ', time.time() - save_model_time)
             states_file = snapshot_file.replace('.ckpk', '') + '_states.npy'
             np.save(states_file, {'lr': lr})
-            #print('snapshot_time: ', time.time() - snapshot_time)
+            print('snapshot_time: ', time.time() - snapshot_time)
             eval_time = time.time()
             # run evaluation
             if run_eval:
                 run_eval_on_data(model, data_reader_eval)
                 model.train()
-            #print('eval_time: ', time.time() - eval_time)
+            print('eval_time: ', time.time() - eval_time)
             adjust_time = time.time()
             # adjust lr:
             curr_loss = loss_sum/batch_num
             if prev_loss is not None:
                 lr = adjust_lr_clevr(curr_loss, prev_loss, lr)
-            #print('adjust_lr_time: ', time.time() - adjust_time)
+            print('adjust_lr_time: ', time.time() - adjust_time)
             clear_stats_time = time.time()
             # clear stats
             correct, total, loss_sum, batch_num = 0, 0, 0., 0
             prev_loss = curr_loss
-            #print('clear_stats_time: ', time.time() - clear_stats_time)
+            print('clear_stats_time: ', time.time() - clear_stats_time)
         
         batch_res_time = time.time()
         if n_epoch >= cfg.TRAIN.MAX_EPOCH:
             break
         batch_res = model.run_batch(
             batch, train=True, run_vqa=False, run_ref=True, lr=lr)
-        #print('batch_res_time: ', time.time()-batch_res_time)
+        print('batch_res_time: ', time.time()-batch_res_time)
         #BRYCE CODE
 
         record_time = time.time()
@@ -90,7 +90,7 @@ def run_train_on_data(model, data_reader_train, lr_start,
         loss_sum += batch_res['loss'].item()
         batch_num += 1
         print('\rTrain E %d S %d: avgL=%.4f, avgA=%.4f, lr=%.1e' % (n_epoch+1, total, loss_sum/batch_num, correct/total, lr), end='')
-        #print('record_time: ', time.time()-record_time)
+        print('record_time: ', time.time()-record_time)
         print('1 batch: ', time.time() - batch_time)
         #BRYCE CODE
 
@@ -174,12 +174,14 @@ def dump_prediction_to_file(predictions, res_dir):
 
 
 def train():
+    data_reader_time = time.time()
     data_reader_train, num_vocab, num_choices = load_train_data()
     data_reader_eval, _, _ = load_eval_data(max_num=cfg.TRAIN.EVAL_MAX_NUM)
-
+    print('data_Reader_time: ', time.time()-data_reader_time)
     # Load model
     model = LCGNwrapper(num_vocab, num_choices)
-
+    
+    save_snap_time = time.time()
     # Save snapshot
     snapshot_dir = os.path.dirname(cfg.SNAPSHOT_FILE % (cfg.EXP_NAME, 0))
     os.makedirs(snapshot_dir, exist_ok=True)
@@ -197,6 +199,7 @@ def train():
             print('recovered previous lr %.1e' % lr_start)
         else:
             print('could not recover previous lr')
+    print('save_snap_time: ', time.time()-save_snap_time)
 
     print('%s - train for %d epochs' % (cfg.EXP_NAME, cfg.TRAIN.MAX_EPOCH))
     run_train_on_data(
