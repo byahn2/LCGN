@@ -48,6 +48,7 @@ class GroundeR(nn.Module):
         interactions = F.normalize(kb * proj_q[:, None, :], dim=-1)
         logits = self.inter2att(interactions).squeeze(-1)
         logits = ops.apply_mask1d(logits, imagesObjectNum)
+        logits = torch.sigmoid(logits)
         #print('GroundR time: ', time.time()-groundR_time)
         return logits
 
@@ -146,12 +147,16 @@ class LCGNnet(nn.Module):
             ref_scores_time = time.time()
             assert cfg.FEAT_TYPE == 'spatial'
             
+            ref_scores_time = time.time()
             #calculate ref_scores
-            ref_scores = torch.sigmoid(self.grounder(x_out, vecQuestions, imagesObjectNum))
+            ref_scores = self.grounder(x_out, vecQuestions, imagesObjectNum)
+            #print('ref_scores_time: ', time.time()-ref_scores_time)
 
+            bbox_prediction_time = time.time()
             # calculate bbox_offset (this was not trained)
             bbox_offset, bbox_offset_fcn, ref_inds = self.bbox_regression(x_out, ref_scores)
-            
+           
+            #print('ref_inds: ', ref_inds.shape)
             # bbox predictions returns a matrix that is batch_size x num_boxes x 4.  
             # It has the predicted x,y,w,h of all bounding boxes with matching scores higher than the threshold, all other coordinates are 0 
             bbox_prediction_time=time.time()
@@ -167,19 +172,23 @@ class LCGNnet(nn.Module):
             loss += (bbox_ind_loss + bbox_offset_loss)
             #print('loss_time: ', time.time()-loss_time)
             
+            iou_time = time.time()
             # for normal version, calculate box ious to use as a metric
             bbox_ious = batch_bbox_iou(bbox_predictions, bboxBatchGt, bboxRefScoreGt)
             #print('bbox_ious: ', bbox_ious.shape)
             bbox_num_correct = np.sum(bbox_ious >= cfg.BBOX_IOU_THRESH)
-            
+            #print('iou_time: ', time.time()-iou_time)
+
+            calc_correct_time = time.time()
             # calculate number of positives, negatives, and AUC using function
-            true_positive, total_positive, true_negative, total_negative, precision, top_accuracy_list, AUC, f1 = self.calc_correct(bboxRefScoreGt, ref_scores)
-            
+            true_positive, total_positive, true_negative, total_negative, precision, top_accuracy_list = self.calc_correct(bboxRefScoreGt, ref_scores)
+            #print('calc_correct_time: ', time.time() - calc_correct_time)
+
             res_update_time = time.time()
             possible_correct = float(bboxRefScoreGt.shape[0]*bboxRefScoreGt.shape[1])
             possible_correct_boxes = torch.sum(bboxRefScoreGt).item()
             res.update({
-                "accuracy_list" : top_accuracy_list,
+                "accuracy_list" : top_accuracy_list.detach().cpu().numpy(),
                 "bbox_predictions": bbox_predictions,
                 "gt_coords": bboxBatchGt,
                 "bbox_ious": bbox_ious,
@@ -189,13 +198,11 @@ class LCGNnet(nn.Module):
                 "false_negative": int(total_positive - true_positive),
                 "bbox_num_correct": int(bbox_num_correct),
                 "num_correct": int(true_positive + true_negative),
-                "top_accuracy": float(np.mean(top_accuracy_list)),
+                "top_accuracy": float(np.mean(top_accuracy_list.detach().cpu().numpy())),
                 "bbox_accuracy": float((bbox_num_correct * 1.)/possible_correct_boxes),
                 "possible_correct": float(possible_correct),
                 "possible_correct_boxes": int(possible_correct_boxes),
                 "precision": float(precision),
-                "pr_AUC": float(AUC),
-                "pr_f1": f1
             #BRYCE CODE
             })
         res.update({"batch_size": int(batchSize), "loss": loss})
@@ -204,50 +211,28 @@ class LCGNnet(nn.Module):
         return res
 
     #BRYCE CODE
-    def calc_correct(self, gt_scores, ref_scores):
+    def calc_correct(self, gt_scores, ref_scores_original):
         calc_correct_time = time.time()
-        max_inds = torch.argmax(ref_scores, dim=1)
-        ref_scores_new = torch.zeros_like(ref_scores)
-        ref_scores_new[max_inds] = 1
-        print('max_ref_scores: ', torch.max(ref_scores_new, dim=1))
-        print('min_ref_scores: ', ref_scores)
+        max_inds = torch.argmax(ref_scores_original, dim=1, keepdim=True).squeeze()
+        ref_scores = torch.zeros_like(ref_scores_original).cuda()
+        ref_scores[torch.arange(len(max_inds),dtype=int), max_inds] = 1
         # slice inds is the indices where the ground truth positives are
         slice_inds = (gt_scores !=0).nonzero()
         total_positive = slice_inds.shape[0]
         #print('total_positive: ', total_positive)
-        ref_slice = ref_scores_new[slice_inds[:,0], slice_inds[:,1]]
+        ref_slice = ref_scores[slice_inds[:,0], slice_inds[:,1]]
         # slice_inds_neg is the indices where the ground truth negatives are
         slice_inds_neg = (gt_scores == 0).nonzero()
         total_negative = slice_inds_neg.shape[0]
         #print('total_negative: ', total_negative)
-        ref_slice_neg = ref_scores_new[slice_inds_neg[:,0], slice_inds_neg[:,1]]
-        #the means of the values for the probabilities at gt positive and gt negative indiceis
-        pos_mean = np.mean(ref_slice.detach().cpu().numpy(), axis=0)
-        neg_mean = np.mean(ref_slice_neg.detach().cpu().numpy(), axis=0)
-        print('\n Pos Mean: ', pos_mean, ' Neg mean: ', neg_mean)
-        
-        #for different thresholds, calculate precision and recall
-        for thresh in np.arange(0, 1.01, 0.05):
-            true_positive = np.sum(ref_slice.detach().cpu().numpy() >= thresh)
-            true_negative = np.sum(ref_slice_neg.detach().cpu().numpy() < thresh)
-            false_negative = total_positive - true_positive
-            false_positive = total_negative - true_negative
-            precision = true_positive / (true_positive + false_positive)
-            recall = true_positive / (true_positive + false_negative)
-            print('\n\n Threshold: ', thresh)
-            print('Precisions: ', precision)
-            print('Recall: ', recall)
-            print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', total_negative - true_negative)
-            print('CORRECT: ', true_negative + true_positive, ' INCORRECT: ', gt_scores.shape[0]*gt_scores.shape[1]-(true_negative + true_positive))
-            print('Accuracy: ', (true_negative + true_positive) / (gt_scores.shape[0]*gt_scores.shape[1]))
-        
-        probabilities = ref_scores_new.clone().detach().cpu().numpy()
-        thresh_classifications = probabilities.copy()
+        ref_slice_neg = ref_scores[slice_inds_neg[:,0], slice_inds_neg[:,1]]
+
+        thresh_classifications = ref_scores.clone()
         thresh_classifications[thresh_classifications >= cfg.MATCH_THRESH] = 1
         thresh_classifications[thresh_classifications < cfg.MATCH_THRESH] = 0
         #print('thresh_classifications: ', thresh_classifications)
-        true_positive = np.sum(ref_slice.detach().cpu().numpy() >= cfg.MATCH_THRESH)
-        true_negative = np.sum(ref_slice.detach().cpu().numpy() < cfg.MATCH_THRESH)
+        true_positive = len((ref_slice >= cfg.MATCH_THRESH).nonzero())
+        true_negative = len((ref_slice_neg < cfg.MATCH_THRESH).nonzero())
         false_negative = total_positive - true_positive
         false_positive = total_negative - true_negative
         print('true_positive: ', true_positive, ' total_positive: ', total_positive, ' false_positive: ', false_positive)
@@ -256,60 +241,21 @@ class LCGNnet(nn.Module):
         recall = true_positive / (true_positive + false_negative)
 
         batch_size = ref_scores.shape[0]
-        probabilities = ref_scores_new.clone().detach().cpu().numpy()
-        gt = gt_scores.detach().cpu().numpy()
-        if batch_size == 1:
-            gt = np.expand_dims(gt, axis=0)
-            probabilities = np.expand_dims(probabilities, axis=0)
-        num_gt_pos = np.sum(gt, axis=1)
-        #print('num_gt_pos:' , num_gt_pos.shape)
-        sorted_probs = np.flip(np.sort(probabilities, axis=1), axis=1)
-        #print('sorted_probs: ', sorted_probs.shape)
-        sorted_probs[sorted_probs >= cfg.MATCH_THRESH] = 1
-        sorted_probs[sorted_probs < cfg.MATCH_THRESH] = 0
-        #print('sorted_probs: ', sorted_probs)
-        top_pos = np.zeros(num_gt_pos.shape, dtype=float)
-        for i in range(len(num_gt_pos)):
-            n = int(num_gt_pos[i])
-            top_pos[i] = sum(sorted_probs[i, 0:n])
-        #print('top_pos: ', top_pos.shape)
-        top_accuracy = top_pos / num_gt_pos
-        #print('top_accuracy: ', top_accuracy.shape, ' ', top_accuracy)
+        pred_p = torch.argmax(ref_scores, dim=1)
+        gt_p = torch.argmax(gt_scores, dim=1)
+        top_accuracy = (-1 * torch.abs((gt_p-pred_p))).float()
+        top_accuracy[top_accuracy==0] = 1.
+        top_accuracy[top_accuracy<0] = 0.
+        print('top_accuracy: ', torch.mean(top_accuracy))
 
-        #calculate ACU
-        #ROC
-        batch_size = ref_scores.shape[0]
-        if batch_size == 1:
-            gt = np.expand_dims(gt, axis=0)
-            probabilities = np.expand_dims(probabilities, axis=0)
-        AUC = 0
-        f1 = 0
-        for b in range(batch_size):
-            pr_precision = dict() 
-            pr_recall = dict()
-            pr_auc = dict()
-            pr_f1 = dict()
-            pr_precision[b], pr_recall[b], _ = precision_recall_curve(gt[b,:].T, probabilities[b,:].T)
-            pr_auc[b] = auc(pr_recall[b], pr_precision[b])
-            pr_f1[b] = f1_score(gt[b,:].T, thresh_classifications[b,:].T)
-            #print('f1: ', pr_f1)
-            #print('auc: ', pr_auc)
-            AUC += pr_auc[b]
-            f1 += pr_f1[b]
-            #print('\nauc is ', roc_auc[b])
-        AUC = AUC / batch_size
-        f1 = f1 / batch_size
         # recalculate for thresh in config = 0.9 and return results
-        print('\n\n Threshold: ', cfg.MATCH_THRESH)
         print('Precisions: ', precision)
         print('Recall: ', recall)
         print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', total_negative - true_negative)
         print('CORRECT: ', true_negative + true_positive, ' INCORRECT: ', gt_scores.shape[0]*gt_scores.shape[1]-(true_negative + true_positive))
-        print('Accuracy: ', np.mean(top_accuracy))
-        print('Average pr AUC: ', AUC)
-        print('Average pr f1: ', f1)
+        print('Accuracy: ', torch.mean(top_accuracy).item())
         #print('calc_correct_time: ', time.time()-calc_correct_time)
-        return (true_positive, total_positive, true_negative, total_negative, precision, top_accuracy, AUC, f1)
+        return (true_positive, total_positive, true_negative, total_negative, precision, top_accuracy)
 
     def add_pred_op(self, logits, answers):
         if cfg.MASK_PADUNK_IN_LOGITS:
@@ -355,10 +301,6 @@ class LCGNnet(nn.Module):
         #print(weight_matrix[1,:])
         bbox_ind_loss = F.binary_cross_entropy_with_logits(input=ref_scores, target=bbox_ind_gt, weight=weight_matrix, reduction='mean')
          
-        bbox_ind_loss = F.binary_cross_entropy_with_logits(ref_scores, bbox_ind_gt)
-        #print('\nref_scores: ', ref_scores.view(-1))
-        #print('gt: ', bbox_ind_gt.view(-1))
-        #print('gt size: ', bbox_ind_gt.shape)
         # bounding box regression loss
        
         slice_inds = (bbox_ind_gt != 0).nonzero()

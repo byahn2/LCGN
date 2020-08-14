@@ -127,7 +127,7 @@ def load_eval_data(max_num=0):
 def run_eval_on_data(model, data_reader_eval, pred=False):
     model.eval()
     predictions = []
-    correct, total, loss_sum, batch_num, AUC_sum, f1_sum, top_accuracy_sum = 0, 0, 0., 0, 0., 0., 0.
+    correct, total, loss_sum, batch_num, top_accuracy_sum = 0, 0, 0., 0, 0.
     for batch, _, _ in data_reader_eval.batches(one_pass=True):
         batch_res = model.run_batch(
             batch, train=False, run_vqa=False, run_ref=True)
@@ -144,8 +144,6 @@ def run_eval_on_data(model, data_reader_eval, pred=False):
         total += batch_res['possible_correct_boxes']
         #BRYCE CODE
         loss_sum += batch_res['loss'].item()
-        AUC_sum += batch_res['pr_AUC']
-        f1_sum += batch_res['pr_f1']
         top_accuracy_sum += batch_res['top_accuracy']
         batch_num += 1
         #BRYCE CODE
@@ -157,8 +155,6 @@ def run_eval_on_data(model, data_reader_eval, pred=False):
         'total': total,
         'box_accuracy': float(correct*1./total),
         'top_accuracy': top_accuracy_sum/batch_num,
-        'pr_AUC': float(AUC_sum/batch_num),
-        'pr_f1': float(f1_sum/batch_num),
         'loss': loss_sum/batch_num,
         'predictions': predictions}
     return eval_res
