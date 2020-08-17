@@ -217,6 +217,7 @@ class LCGNnet(nn.Module):
 
     #BRYCE CODE
     def calc_correct(self, gt_scores, ref_scores_original):
+        batchSize = gt_scores.shape[0]
         calc_correct_time = time.time()
         ref_scores = ref_scores_original.clone() 
         max_inds = torch.argmax(ref_scores, dim=1).squeeze()
@@ -238,7 +239,7 @@ class LCGNnet(nn.Module):
         #the means of the values for the probabilities at gt positive and gt negative indiceis
         pos_mean = torch.mean(ref_slice, dim=0)
         neg_mean = torch.mean(ref_slice_neg, dim=0)
-        print('\n Pos Mean: ', pos_mean, ' Neg mean: ', neg_mean)
+        print('\n Pos Mean: ', pos_mean.item(), ' Neg mean: ', neg_mean.item())
         
         #for different thresholds, calculate precision and recall
         #for thresh in np.arange(0, 1.01, 0.05):
@@ -277,6 +278,7 @@ class LCGNnet(nn.Module):
         #calculate ACU
         #ROC
         probabilities = ref_scores.clone().detach().cpu().numpy()
+        thresh_class_np = thresh_classifications.detach().cpu().numpy()
         gt = gt_scores.detach().cpu().numpy()
         if batchSize == 1:
             gt = np.expand_dims(gt, axis=0)
@@ -290,7 +292,7 @@ class LCGNnet(nn.Module):
             pr_f1 = dict()
             pr_precision[b], pr_recall[b], _ = precision_recall_curve(gt[b,:].T, probabilities[b,:].T)
             pr_auc[b] = auc(pr_recall[b], pr_precision[b])
-            pr_f1[b] = f1_score(gt[b,:].T, thresh_classifications[b,:].T)
+            pr_f1[b] = f1_score(gt[b,:].T, thresh_class_np[b,:].T)
             #print('f1: ', pr_f1)
             #print('auc: ', pr_auc)
             AUC += pr_auc[b]
@@ -299,7 +301,6 @@ class LCGNnet(nn.Module):
         AUC = AUC / batchSize
         f1 = f1 / batchSize
         # recalculate for thresh in config = 0.9 and return results
-        print('\n\n Threshold: ', cfg.MATCH_THRESH)
         print('Precisions: ', precision)
         print('Recall: ', recall)
         print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', total_negative - true_negative)
