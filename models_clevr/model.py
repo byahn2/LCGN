@@ -191,7 +191,7 @@ class LCGNnet(nn.Module):
             possible_correct = float(bboxRefScoreGt.shape[0]*bboxRefScoreGt.shape[1])
             possible_correct_boxes = torch.sum(bboxRefScoreGt).item()
             res.update({
-                "accuracy_list" : top_accuracy_list,
+                "accuracy_list" : top_accuracy_list.detach().cpu().numpy(),
                 "bbox_predictions": bbox_predictions,
                 "gt_coords": bboxBatchGt,
                 "bbox_ious": bbox_ious,
@@ -201,7 +201,7 @@ class LCGNnet(nn.Module):
                 "false_negative": int(total_positive - true_positive),
                 "bbox_num_correct": int(bbox_num_correct),
                 "num_correct": int(true_positive + true_negative),
-                "top_accuracy": float(np.mean(top_accuracy_list)),
+                "top_accuracy": float(np.mean(top_accuracy_list.detach().cpu().numpy())),
                 "bbox_accuracy": float((bbox_num_correct * 1.)/possible_correct_boxes),
                 "possible_correct": float(possible_correct),
                 "possible_correct_boxes": int(possible_correct_boxes),
@@ -221,44 +221,46 @@ class LCGNnet(nn.Module):
         ref_scores = ref_scores_original.clone() 
         max_inds = torch.argmax(ref_scores, dim=1).squeeze()
         ref_scores[torch.arange(ref_scores.shape[0]), max_inds] = 1
-
+        #print('max_inds: ', max_inds.shape)
+        #print('ref_scores max: ', ref_scores[torch.arange(ref_scores.shape[0]), max_inds])
+        #print('ref_scores not max: ', ref_scores[torch.arange(ref_scores.shape[0]), (max_inds - 1)])
         # slice inds is the indices where the ground truth positives are
         slice_inds = (gt_scores !=0).nonzero()
         total_positive = slice_inds.shape[0]
         #print('total_positive: ', total_positive)
         ref_slice = ref_scores[slice_inds[:,0], slice_inds[:,1]]
+        #print('ref_slice: ', ref_slice)
         # slice_inds_neg is the indices where the ground truth negatives are
         slice_inds_neg = (gt_scores == 0).nonzero()
         total_negative = slice_inds_neg.shape[0]
         #print('total_negative: ', total_negative)
         ref_slice_neg = ref_scores[slice_inds_neg[:,0], slice_inds_neg[:,1]]
         #the means of the values for the probabilities at gt positive and gt negative indiceis
-        pos_mean = np.mean(ref_slice.detach().cpu().numpy(), axis=0)
-        neg_mean = np.mean(ref_slice_neg.detach().cpu().numpy(), axis=0)
+        pos_mean = torch.mean(ref_slice, dim=0)
+        neg_mean = torch.mean(ref_slice_neg, dim=0)
         print('\n Pos Mean: ', pos_mean, ' Neg mean: ', neg_mean)
         
         #for different thresholds, calculate precision and recall
-        for thresh in np.arange(0, 1.01, 0.05):
-            true_positive = np.sum(ref_slice.detach().cpu().numpy() >= thresh)
-            true_negative = np.sum(ref_slice_neg.detach().cpu().numpy() < thresh)
-            false_negative = total_positive - true_positive
-            false_positive = total_negative - true_negative
-            precision = true_positive / (true_positive + false_positive)
-            recall = true_positive / (true_positive + false_negative)
-            print('\n\n Threshold: ', thresh)
-            print('Precisions: ', precision)
-            print('Recall: ', recall)
-            print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', total_negative - true_negative)
-            print('CORRECT: ', true_negative + true_positive, ' INCORRECT: ', gt_scores.shape[0]*gt_scores.shape[1]-(true_negative + true_positive))
-            print('Accuracy: ', (true_negative + true_positive) / (gt_scores.shape[0]*gt_scores.shape[1]))
+        #for thresh in np.arange(0, 1.01, 0.05):
+        #    true_positive = np.sum(ref_slice.detach().cpu().numpy() >= thresh)
+        #    true_negative = np.sum(ref_slice_neg.detach().cpu().numpy() < thresh)
+        #    false_negative = total_positive - true_positive
+        #    false_positive = total_negative - true_negative
+        #    precision = true_positive / (true_positive + false_positive)
+        #    recall = true_positive / (true_positive + false_negative)
+        #    print('\n\n Threshold: ', thresh)
+        #    print('Precisions: ', precision)
+        #    print('Recall: ', recall)
+        #    print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', total_negative - true_negative)
+        #    print('CORRECT: ', true_negative + true_positive, ' INCORRECT: ', gt_scores.shape[0]*gt_scores.shape[1]-(true_negative + true_positive))
+        #    print('Accuracy: ', (true_negative + true_positive) / (gt_scores.shape[0]*gt_scores.shape[1]))
         
-        probabilities = ref_scores.clone().detach().cpu().numpy()
-        thresh_classifications = probabilities.copy()
+        thresh_classifications = ref_scores.clone()
         thresh_classifications[thresh_classifications >= cfg.MATCH_THRESH] = 1
         thresh_classifications[thresh_classifications < cfg.MATCH_THRESH] = 0
         #print('thresh_classifications: ', thresh_classifications)
-        true_positive = np.sum(ref_slice.detach().cpu().numpy() >= cfg.MATCH_THRESH)
-        true_negative = np.sum(ref_slice.detach().cpu().numpy() < cfg.MATCH_THRESH)
+        true_positive = len((ref_slice >= cfg.MATCH_THRESH).nonzero())
+        true_negative = len((ref_slice_neg < cfg.MATCH_THRESH).nonzero())
         false_negative = total_positive - true_positive
         false_positive = total_negative - true_negative
         print('true_positive: ', true_positive, ' total_positive: ', total_positive, ' false_positive: ', false_positive)
@@ -266,30 +268,16 @@ class LCGNnet(nn.Module):
         precision = true_positive / (true_positive + false_positive)
         recall = true_positive / (true_positive + false_negative)
 
-        batch_size = ref_scores.shape[0]
-        probabilities = ref_scores.clone().detach().cpu().numpy()
-        gt = gt_scores.detach().cpu().numpy()
-        if batch_size == 1:
-            gt = np.expand_dims(gt, axis=0)
-            probabilities = np.expand_dims(probabilities, axis=0)
-        num_gt_pos = np.sum(gt, axis=1)
-        #print('num_gt_pos:' , num_gt_pos.shape)
-        sorted_probs = np.flip(np.sort(probabilities, axis=1), axis=1)
-        #print('sorted_probs: ', sorted_probs.shape)
-        sorted_probs[sorted_probs >= cfg.MATCH_THRESH] = 1
-        sorted_probs[sorted_probs < cfg.MATCH_THRESH] = 0
-        #print('sorted_probs: ', sorted_probs)
-        top_pos = np.zeros(num_gt_pos.shape, dtype=float)
-        for i in range(len(num_gt_pos)):
-            n = int(num_gt_pos[i])
-            top_pos[i] = sum(sorted_probs[i, 0:n])
+        num_gt_pos =torch.sum(gt_scores, dim=1)
+        pos_correct = gt_scores * thresh_classifications
+        top_pos = torch.sum((gt_scores * thresh_classifications), dim=1).float()
         #print('top_pos: ', top_pos.shape)
         top_accuracy = top_pos / num_gt_pos
-        #print('top_accuracy: ', top_accuracy.shape, ' ', top_accuracy)
-
+        print('top_accuracy: ', top_accuracy.shape, ' ', top_accuracy)
         #calculate ACU
         #ROC
-        batch_size = ref_scores.shape[0]
+        probabilities = ref_scores.clone().detach().cpu().numpy()
+        gt = gt_scores.detach().cpu().numpy()
         if batch_size == 1:
             gt = np.expand_dims(gt, axis=0)
             probabilities = np.expand_dims(probabilities, axis=0)
@@ -316,7 +304,7 @@ class LCGNnet(nn.Module):
         print('Recall: ', recall)
         print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', total_negative - true_negative)
         print('CORRECT: ', true_negative + true_positive, ' INCORRECT: ', gt_scores.shape[0]*gt_scores.shape[1]-(true_negative + true_positive))
-        print('Accuracy: ', np.mean(top_accuracy))
+        print('Top Accuracy: ', torch.mean(top_accuracy))
         print('Average pr AUC: ', AUC)
         print('Average pr f1: ', f1)
         #print('calc_correct_time: ', time.time()-calc_correct_time)

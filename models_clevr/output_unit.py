@@ -39,8 +39,8 @@ class BboxRegression(nn.Module):
         probabilities = ref_scores.clone()
         max_inds = torch.argmax(probabilities, dim=1).squeeze()
         probabilities[torch.arange(probabilities.shape[0]), max_inds] = 1
-        #BRYCE CODE
-        #print('BboxRegression')
+        #print('probabilities max: ', probabilities[torch.arange(probabilities.shape[0]), max_inds])
+        #print('probabilities not max: ', probabilities[torch.arange(probabilities.shape[0]), max_inds+1])
         #print('bbox_offset_fcn: ', bbox_offset_fcn.shape)
         assert len(x_out.size()) == 3
         slice_inds = (probabilities > cfg.MATCH_THRESH).nonzero()
@@ -49,6 +49,4 @@ class BboxRegression(nn.Module):
         bbox_offset = bbox_offset_fcn[slice_inds[:,0], slice_inds[:,1], :]
         #print('bbox_offset: ', bbox_offset.shape)
         #print(bbox_offset)
-
         return bbox_offset, bbox_offset_fcn, slice_inds
-        #BRYCE CODE
