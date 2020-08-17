@@ -216,6 +216,7 @@ class LCGNnet(nn.Module):
     def calc_correct(self, gt_scores, ref_scores_original):
         calc_correct_time = time.time()
         max_inds = torch.argmax(ref_scores_original, dim=1, keepdim=True).squeeze()
+        print('max_probabilities: ', ref_scores_original[torch.arange(len(max_inds),dtype=int), max_inds])
         ref_scores = torch.zeros_like(ref_scores_original).cuda()
         ref_scores[torch.arange(len(max_inds),dtype=int), max_inds] = 1
         # slice inds is the indices where the ground truth positives are
@@ -228,6 +229,9 @@ class LCGNnet(nn.Module):
         total_negative = slice_inds_neg.shape[0]
         #print('total_negative: ', total_negative)
         ref_slice_neg = ref_scores[slice_inds_neg[:,0], slice_inds_neg[:,1]]
+        pos_mean = torch.mean(ref_slice, dim=0)
+        neg_mean = torch.mean(ref_slice_neg, dim=0)
+        print('\n Pos Mean: ', pos_mean.item(), ' Neg mean: ', neg_mean.item())
 
         thresh_classifications = ref_scores.clone()
         thresh_classifications[thresh_classifications >= cfg.MATCH_THRESH] = 1
@@ -242,20 +246,19 @@ class LCGNnet(nn.Module):
         precision = true_positive / (true_positive + false_positive)
         recall = true_positive / (true_positive + false_negative)
 
-        batch_size = ref_scores.shape[0]
-        pred_p = torch.argmax(ref_scores, dim=1)
-        gt_p = torch.argmax(gt_scores, dim=1)
-        top_accuracy = (-1 * torch.abs((gt_p-pred_p))).float()
-        top_accuracy[top_accuracy==0] = 1.
-        top_accuracy[top_accuracy<0] = 0.
+        num_gt_pos = torch.sum(gt_scores, dim=1)
+        top_pos = torch.sum((gt_scores * thresh_classifications), dim=1).float()
+        top_accuracy = top_pos/num_gt_pos
+        print('top_accuracy: ', top_accuracy.shape, ' ', top_accuracy)
         print('top_accuracy: ', torch.mean(top_accuracy))
 
+        batch_size = ref_scores.shape[0]
         # recalculate for thresh in config = 0.9 and return results
         print('Precisions: ', precision)
         print('Recall: ', recall)
         print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', total_negative - true_negative)
         print('CORRECT: ', true_negative + true_positive, ' INCORRECT: ', gt_scores.shape[0]*gt_scores.shape[1]-(true_negative + true_positive))
-        print('Accuracy: ', torch.mean(top_accuracy).item())
+        print('Top Accuracy: ', torch.mean(top_accuracy).item())
         #print('calc_correct_time: ', time.time()-calc_correct_time)
         return (true_positive, total_positive, true_negative, total_negative, precision, top_accuracy)
 
