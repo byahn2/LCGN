@@ -278,12 +278,12 @@ class LCGNnet(nn.Module):
         #ROC
         probabilities = ref_scores.clone().detach().cpu().numpy()
         gt = gt_scores.detach().cpu().numpy()
-        if batch_size == 1:
+        if batchSize == 1:
             gt = np.expand_dims(gt, axis=0)
             probabilities = np.expand_dims(probabilities, axis=0)
         AUC = 0
         f1 = 0
-        for b in range(batch_size):
+        for b in range(batchSize):
             pr_precision = dict() 
             pr_recall = dict()
             pr_auc = dict()
@@ -296,8 +296,8 @@ class LCGNnet(nn.Module):
             AUC += pr_auc[b]
             f1 += pr_f1[b]
             #print('\nauc is ', roc_auc[b])
-        AUC = AUC / batch_size
-        f1 = f1 / batch_size
+        AUC = AUC / batchSize
+        f1 = f1 / batchSize
         # recalculate for thresh in config = 0.9 and return results
         print('\n\n Threshold: ', cfg.MATCH_THRESH)
         print('Precisions: ', precision)
