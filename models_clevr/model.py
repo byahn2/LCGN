@@ -305,7 +305,6 @@ class LCGNnet(nn.Module):
         #print('weight_matrix: ', weight_matrix[0,:])
         #print(weight_matrix[1,:])
         bbox_ind_loss = F.binary_cross_entropy_with_logits(input=ref_scores, target=bbox_ind_gt, weight=weight_matrix, reduction='mean')
-         
         # bounding box regression loss
        
         slice_inds = (bbox_ind_gt != 0).nonzero()
