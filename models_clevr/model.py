@@ -93,19 +93,22 @@ class LCGNnet(nn.Module):
             # get gt ind, offset, and coordinates from batch 
             bboxInd = batch['bbox_ind_batch']
             bboxOffset = batch['bbox_offset_batch'] 
-            bboxBatch = batch['bbox_batch'] 
+            bboxCoords = batch['bbox_batch'] 
             
             #print('initial bboxInd: ', bboxInd.shape)
             #print('initial bboxOffset: ', bboxOffset.shape)
-            #print('initial bboxBatch: ', bboxBatch.shape)
+            #print('initial bboxCoords: ', bboxCoords.shape)
+            #print('initial bboxInd: ', bboxInd[0,:])
+            #print('initial bboxOffset: ', bboxOffset[0,:,:])
+            #print('initial bboxCoords: ', bboxCoords[0,:,:])
             
             # initialize zero matricies for each object in each batch to store target information (these are batch_size x 20 x 4)
             bboxRefScoreGt = torch.zeros(size=(batchSize, torch.max(imagesObjectNum)), dtype=torch.float64).cuda()
             bboxOffsetGt = torch.zeros(size=(batchSize, torch.max(imagesObjectNum), 4), dtype=torch.float32).cuda()
-            bboxBatchGt = torch.zeros(size=(batchSize, torch.max(imagesObjectNum), 4), dtype = torch.int64).cuda()
+            bboxCoordsGt = torch.zeros(size=(batchSize, torch.max(imagesObjectNum), 4), dtype = torch.int64).cuda()
             
             # batch_inds is a list of the indices of the batches where there are gt positive boxes: eg: [0, 0, 0, 1, 2, 3, 3, 4, 5, 5, 5 ... 63 63] 
-            # box_inds is the index of bboxInd, bboxOffset, and bboxBatch that contain a ground truth box: eg [0, 1 ,3 , 0, 2 ... 5, 0]
+            # box_inds is the index of bboxInd, bboxOffset, and bboxCoords that contain a ground truth box: eg [0, 1 ,3 , 0, 2 ... 5, 0]
             # target_inds is the indices of the proposed boxes which are gt positive eg [140, 28, 32, 49, 160, ... 2]
             batch_inds = np.argwhere(bboxInd > -1)[:,0]
             box_inds = np.argwhere(bboxInd > -1)[:,1]
@@ -117,14 +120,16 @@ class LCGNnet(nn.Module):
             
             bboxRefScoreGt[batch_inds[:], target_inds[:]] = 1
             bboxOffsetGt[batch_inds[:], target_inds[:], :] = torch.from_numpy(bboxOffset[batch_inds[:], box_inds[:], :].astype(np.float32)).cuda()
-            bboxBatchGt[batch_inds[:], target_inds[:], :] = torch.from_numpy(bboxBatch[batch_inds[:], box_inds[:], :].astype(np.int64)).cuda()
+            bboxCoordsGt[batch_inds[:], target_inds[:], :] = torch.from_numpy(bboxCoords[batch_inds[:], box_inds[:], :].astype(np.int64)).cuda()
 
             #print('bboxRefScoreGt: ', bboxRefScoreGt.shape)
             #print('bboxOffsetGt: ', bboxOffsetGt.shape)
-            #print('bboxBatchGt: ', bboxBatchGt.shape)
+            #print('bboxCoordsGt: ', bboxCoordsGt.shape)
+            #print('bboxRefScoreGt: ', bboxRefScoreGt[0,:])
+            #print('bboxOffsetGt: ', bboxOffsetGt[0,:,:])
+            #print('bboxCoordsGt: ', bboxCoordsGt[0,:,:])
         
-        #BRYCE CODE
-        
+        pause 
         #print('build_gt_time: ', time.time() - build_gt_time)
         LSTM_time = time.time()
 
@@ -170,7 +175,7 @@ class LCGNnet(nn.Module):
             # bbox predictions returns a matrix that is batch_size x num_boxes x 4.  
             # It has the predicted x,y,w,h of all bounding boxes with matching scores higher than the threshold, all other coordinates are 0 
             bbox_prediction_time=time.time()
-            bbox_predictions = batch_feat_grid2bbox(ref_inds.detach().cpu().numpy(), bboxBatchGt.shape,bbox_offset.detach().cpu().numpy(),cfg.IMG_H / cfg.H_FEAT, cfg.IMG_W / cfg.W_FEAT,cfg.H_FEAT, cfg.W_FEAT)
+            bbox_predictions = batch_feat_grid2bbox(ref_inds.detach().cpu().numpy(), bboxCoordsGt.shape,bbox_offset.detach().cpu().numpy(),cfg.IMG_H / cfg.H_FEAT, cfg.IMG_W / cfg.W_FEAT,cfg.H_FEAT, cfg.W_FEAT)
             #print('bbox_prediction_time: ', time.time()-bbox_prediction_time)
             
             #calculate the loss
@@ -180,7 +185,7 @@ class LCGNnet(nn.Module):
             #print('loss_time: ', time.time()-loss_time)
             
             # for normal version, calculate box ious to use as a metric
-            bbox_ious = batch_bbox_iou(bbox_predictions, bboxBatchGt, bboxRefScoreGt)
+            bbox_ious = batch_bbox_iou(bbox_predictions, bboxCoordsGt, bboxRefScoreGt)
             #print('bbox_ious: ', bbox_ious.shape)
             bbox_num_correct = np.sum(bbox_ious >= cfg.BBOX_IOU_THRESH)
             
@@ -193,7 +198,7 @@ class LCGNnet(nn.Module):
             res.update({
                 "accuracy_list" : top_accuracy_list.detach().cpu().numpy(),
                 "bbox_predictions": bbox_predictions,
-                "gt_coords": bboxBatchGt,
+                "gt_coords": bboxCoordsGt,
                 "bbox_ious": bbox_ious,
                 "true_positive": int(true_positive),
                 "true_negative": int(true_negative),
