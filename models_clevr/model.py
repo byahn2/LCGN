@@ -205,7 +205,6 @@ class LCGNnet(nn.Module):
                 "possible_correct": float(possible_correct),
                 "possible_correct_boxes": int(possible_correct_boxes),
                 "precision": float(precision),
-            #BRYCE CODE
             })
         res.update({"batch_size": int(batchSize), "loss": loss})
         #print('res_update_time: ', time.time() - res_update_time)
@@ -241,8 +240,8 @@ class LCGNnet(nn.Module):
         true_negative = len((ref_slice_neg < cfg.MATCH_THRESH).nonzero())
         false_negative = total_positive - true_positive
         false_positive = total_negative - true_negative
-        print('true_positive: ', true_positive, ' total_positive: ', total_positive, ' false_positive: ', false_positive)
-        print('true_negative: ', true_negative, ' total negative: ', total_negative, ' false_negative: ', false_negative)
+        #print('true_positive: ', true_positive, ' total_positive: ', total_positive, ' false_positive: ', false_positive)
+        #print('true_negative: ', true_negative, ' total negative: ', total_negative, ' false_negative: ', false_negative)
         precision = true_positive / (true_positive + false_positive)
         recall = true_positive / (true_positive + false_negative)
 
@@ -287,13 +286,7 @@ class LCGNnet(nn.Module):
 
     #DEBUG
     def add_bbox_loss_op(self, ref_scores, bbox_offset_fcn, bbox_ind_gt, bbox_offset_gt):
-        #BRYCE CODE
         # bounding box selection loss
-        
-        #print('ref_scores: ', ref_scores.shape, ' bbox_ind_gt: ', bbox_ind_gt.shape)
-    #def add_bbox_loss_op(self, ref_scores, bbox_ind_gt):
-    #DEBUG
-        # Using weight 
         gt_positive = 1.0 * torch.sum(bbox_ind_gt).item()
         gt_negative = 1.0 * (bbox_ind_gt.shape[0] * bbox_ind_gt.shape[1] - gt_positive)
         gt_total = 1.0 * bbox_ind_gt.shape[0]*bbox_ind_gt.shape[1]
