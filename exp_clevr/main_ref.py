@@ -41,7 +41,7 @@ def run_train_on_data(model, data_reader_train, lr_start,
                       run_eval=False, data_reader_eval=None):
     model.train()
     lr = lr_start
-    correct, total, loss_sum, batch_num = 0, 0, 0., 0
+    correct, total, loss_sum, batch_num, top_acc = 0, 0, 0., 0, 0.
     prev_loss = None
     for batch, n_sample, e in data_reader_train.batches(one_pass=False):
         batch_time = time.time()
@@ -52,27 +52,27 @@ def run_train_on_data(model, data_reader_train, lr_start,
             snapshot_file = cfg.SNAPSHOT_FILE % (cfg.EXP_NAME, n_epoch)
             save_model_time = time.time()
             torch.save(model.state_dict(), snapshot_file)
-            #print('\nsave_model_time: ', time.time() - save_model_time)
+            print('\nsave_model_time: ', time.time() - save_model_time)
             states_file = snapshot_file.replace('.ckpk', '') + '_states.npy'
             np.save(states_file, {'lr': lr})
-            #print('snapshot_time: ', time.time() - snapshot_time)
+            print('snapshot_time: ', time.time() - snapshot_time)
             eval_time = time.time()
             # run evaluation
             if run_eval:
                 run_eval_on_data(model, data_reader_eval)
                 model.train()
-            #print('eval_time: ', time.time() - eval_time)
+            print('eval_time: ', time.time() - eval_time)
             adjust_time = time.time()
             # adjust lr:
             curr_loss = loss_sum/batch_num
             if prev_loss is not None:
                 lr = adjust_lr_clevr(curr_loss, prev_loss, lr)
-            #print('adjust_lr_time: ', time.time() - adjust_time)
+            print('adjust_lr_time: ', time.time() - adjust_time)
             clear_stats_time = time.time()
             # clear stats
-            correct, total, loss_sum, batch_num = 0, 0, 0., 0
+            correct, total, loss_sum, batch_num, top_acc = 0, 0, 0., 0, 0.
             prev_loss = curr_loss
-            #print('clear_stats_time: ', time.time() - clear_stats_time)
+            print('clear_stats_time: ', time.time() - clear_stats_time)
         
         batch_res_time = time.time()
         if n_epoch >= cfg.TRAIN.MAX_EPOCH:
@@ -84,14 +84,15 @@ def run_train_on_data(model, data_reader_train, lr_start,
 
         record_time = time.time()
         correct += batch_res['bbox_num_correct']
-        total += batch_res['possible_correct']
+        total += batch_res['possible_correct_boxes']
+        top_acc += batch_res['top_accuracy']
         #print('correct: ', correct, ' total: ', total, ' accuracy: ', correct/total)
         #BRYCE CODE
         loss_sum += batch_res['loss'].item()
         batch_num += 1
-        print('\rTrain E %d S %d: avgL=%.4f, avgA=%.4f, lr=%.1e' % (n_epoch+1, total, loss_sum/batch_num, correct/total, lr), end='')
+        print('\rTrain E %d S %d: avgL=%.4f, avgA=%.4f, topAcc=$.4f, lr=%.1e' % (n_epoch+1, total, loss_sum/batch_num, correct/total, top_acc/batch_num, lr), end='')
         #print('record_time: ', time.time()-record_time)
-        print('1 batch: ', time.time() - batch_time)
+        print('\n1 batch: ', time.time() - batch_time)
         #BRYCE CODE
 
 def adjust_lr_clevr(curr_los, prev_loss, curr_lr):
