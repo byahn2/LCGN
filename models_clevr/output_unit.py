@@ -35,18 +35,27 @@ class BboxRegression(nn.Module):
         self.bbox_offset_fcn = ops.Linear(cfg.CTX_DIM, 4)
 
     def forward(self, x_out, ref_scores):
+        # fcn calculates the bounding box offsets for all boxes
         bbox_offset_fcn = self.bbox_offset_fcn(x_out)
+        # probabilities is the same as ref_scores except that the maximum probability is always above threshold
         probabilities = ref_scores.clone()
         max_inds = torch.argmax(probabilities, dim=1).squeeze()
         probabilities[torch.arange(probabilities.shape[0]), max_inds] = 1
+
         #print('probabilities max: ', probabilities[torch.arange(probabilities.shape[0]), max_inds])
         #print('probabilities not max: ', probabilities[torch.arange(probabilities.shape[0]), max_inds+1])
         #print('bbox_offset_fcn: ', bbox_offset_fcn.shape)
-        assert len(x_out.size()) == 3
+        
+        #slice inds is the indices where the probability is above threshold (or is the maximum probability).  These are the predicted indices
         slice_inds = (probabilities > cfg.MATCH_THRESH).nonzero()
+
         #print('slice_inds: ', slice_inds.shape)
         #print(slice_inds)
+        
+        #bbox offset is the offset for the predicted boxes
         bbox_offset = bbox_offset_fcn[slice_inds[:,0], slice_inds[:,1], :]
+        
         #print('bbox_offset: ', bbox_offset.shape)
         #print(bbox_offset)
+        
         return bbox_offset, bbox_offset_fcn, slice_inds

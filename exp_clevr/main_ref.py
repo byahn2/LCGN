@@ -90,7 +90,7 @@ def run_train_on_data(model, data_reader_train, lr_start,
         #BRYCE CODE
         loss_sum += batch_res['loss'].item()
         batch_num += 1
-        print('\rTrain E %d S %d: avgL=%.4f, avgA=%.4f, topAcc=$.4f, lr=%.1e' % (n_epoch+1, total, loss_sum/batch_num, correct/total, top_acc/batch_num, lr), end='')
+        print('\rTrain E %d S %d: avgL=%.4f, avgboxA=%.4f, avgtopA=%.4f, lr=%.1e' % (n_epoch+1, total, loss_sum/batch_num, correct/total, top_acc/batch_num, lr), end='')
         #print('record_time: ', time.time()-record_time)
         print('\n1 batch: ', time.time() - batch_time)
         #BRYCE CODE
@@ -145,8 +145,8 @@ def run_eval_on_data(model, data_reader_eval, pred=False):
         total += batch_res['possible_correct_boxes']
         #BRYCE CODE
         loss_sum += batch_res['loss'].item()
-        AUC_sum += batch_res['pr_AUC']
-        f1_sum += batch_res['pr_f1']
+        #AUC_sum += batch_res['pr_AUC']
+        #f1_sum += batch_res['pr_f1']
         top_accuracy_sum += batch_res['top_accuracy']
         batch_num += 1
         #BRYCE CODE
@@ -158,8 +158,8 @@ def run_eval_on_data(model, data_reader_eval, pred=False):
         'total': total,
         'box_accuracy': float(correct*1./total),
         'top_accuracy': top_accuracy_sum/batch_num,
-        'pr_AUC': float(AUC_sum/batch_num),
-        'pr_f1': float(f1_sum/batch_num),
+        #'pr_AUC': float(AUC_sum/batch_num),
+        #'pr_f1': float(f1_sum/batch_num),
         'loss': loss_sum/batch_num,
         'predictions': predictions}
     return eval_res

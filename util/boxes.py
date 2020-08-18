@@ -1,6 +1,5 @@
 import numpy as np
 
-
 def bbox2feat_grid(bbox, stride_H, stride_W, feat_H, feat_W):
     x1, y1, w, h = bbox
     x2 = x1 + w - 1
@@ -65,12 +64,8 @@ def batch_bbox2feat_grid(bbox, stride_H, stride_W, feat_H, feat_W):
 
 
 def batch_feat_grid2bbox(ref_ind, out_shape, offset, stride_H, stride_W, feat_H, feat_W):
-    #BRYCE CODE
-    #print('Batch_feat_grid2bbox')
-    #print('ref_ind: ', ref_ind.shape)
-    #print('offset: ', offset.shape)
+    # this function calculates the bbox coordinates from the indices
     ind = ref_ind[:,1]
-    #print('ind: ', ind.shape)
     xc = ind % feat_W
     yc = ind // feat_W
     x1 = (xc + offset[:, 0] + 0.5) * stride_W
@@ -82,8 +77,6 @@ def batch_feat_grid2bbox(ref_ind, out_shape, offset, stride_H, stride_W, feat_H,
     bbox = np.zeros(out_shape)
     for i in range(ref_ind.shape[0]):
         bbox[ref_ind[i,0], ref_ind[i,1], :] = [x1[i], y1[i], w[i], h[i]]
-    #print('bbox: ', bbox.shape)
-    #BRYCE CODE
     return bbox
 
 #BRYCE CODE

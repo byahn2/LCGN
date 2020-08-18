@@ -74,6 +74,8 @@ class LCGNnet(nn.Module):
 
     def forward(self, batch, run_vqa, run_ref):
         forward_time = time.time()
+        total_time = 0
+        set_up_time = time.time()
         batchSize = len(batch['image_feat_batch'])
         questionIndices = torch.from_numpy(
             batch['input_seq_batch'].astype(np.int64)).cuda()
@@ -86,7 +88,8 @@ class LCGNnet(nn.Module):
         if run_vqa:
             answerIndices = torch.from_numpy(
                 batch['answer_label_batch'].astype(np.int64)).cuda()
-        #BRYCE CODE
+        print('set_up_time: ', time.time() - set_up_time)
+        total_time += (time.time() - set_up_time)
         build_gt_time = time.time()
         #BUILDING THE GROUND TRUTH MATRICES batch_size x num_proposals x 4
         if run_ref:
@@ -129,22 +132,25 @@ class LCGNnet(nn.Module):
             #print('bboxOffsetGt: ', bboxOffsetGt[0,:,:])
             #print('bboxCoordsGt: ', bboxCoordsGt[0,:,:])
         
-        pause 
-        #print('build_gt_time: ', time.time() - build_gt_time)
+        print('build_gt_time: ', time.time() - build_gt_time)
+        total_time += (time.time() - build_gt_time)
         LSTM_time = time.time()
 
         # LSTM
         questionCntxWords, vecQuestions = self.encoder(
             questionIndices, questionLengths)
-        #print('LSTM_Time: ', time.time() - LSTM_time)
+        print('LSTM_Time: ', time.time() - LSTM_time)
+        total_time += (time.time() - LSTM_time)
         LCGN_time = time.time()
         
         # LCGN
+        print('start LCGN')
         x_out = self.lcgn(
             images=images, q_encoding=vecQuestions,
             lstm_outputs=questionCntxWords, batch_size=batchSize,
             q_length=questionLengths, entity_num=imagesObjectNum)
-        #print('LCGN_Time: ', time.time() - LCGN_time)
+        print('End LCGN, LCGN_Time: ', time.time() - LCGN_time)
+        total_time += (time.time() - LCGN_time)
         
         # Single-Hop
         loss = torch.tensor(0., device=x_out.device)
@@ -164,39 +170,61 @@ class LCGNnet(nn.Module):
             #BRYCE CODE
             ref_scores_time = time.time()
             assert cfg.FEAT_TYPE == 'spatial'
-            
             #calculate ref_scores
             ref_scores = torch.sigmoid(self.grounder(x_out, vecQuestions, imagesObjectNum))
-            #print('ref_scores_time: ', time.time()-ref_scores_time)
-            
+            print('ref_scores_time: ', time.time()-ref_scores_time)
+            total_time += (time.time() - ref_scores_time) 
+            #print('ref_scores: ', ref_scores.shape)
+            #print(ref_scores[0,:])
+           
+            offset_time = time.time()
             # calculate bbox_offset (this was not trained)
             bbox_offset, bbox_offset_fcn, ref_inds = self.bbox_regression(x_out, ref_scores)
-            
+            print('offset_time: ', time.time() - offset_time)
+            total_time += (time.time() - offset_time) 
+            #print('bbox_offset: ', bbox_offset.shape)
+            #print('bbox_offset_fcn: ', bbox_offset_fcn.shape)
+            #print('ref_inds: ', ref_inds.shape)
+            #print('bbox_offset: ', bbox_offset[0,:])
+            #print('bbox_offset_fcn: ', bbox_offset_fcn[0,:,:])
+            #print('ref_inds: ', ref_inds)
+
+
             # bbox predictions returns a matrix that is batch_size x num_boxes x 4.  
             # It has the predicted x,y,w,h of all bounding boxes with matching scores higher than the threshold, all other coordinates are 0 
             bbox_prediction_time=time.time()
-            bbox_predictions = batch_feat_grid2bbox(ref_inds.detach().cpu().numpy(), bboxCoordsGt.shape,bbox_offset.detach().cpu().numpy(),cfg.IMG_H / cfg.H_FEAT, cfg.IMG_W / cfg.W_FEAT,cfg.H_FEAT, cfg.W_FEAT)
-            #print('bbox_prediction_time: ', time.time()-bbox_prediction_time)
-            
+            bbox_predictions = batch_feat_grid2bbox(ref_inds.detach().cpu().numpy(), bboxCoordsGt.shape, bbox_offset.detach().cpu().numpy(), cfg.IMG_H / cfg.H_FEAT, cfg.IMG_W / cfg.W_FEAT,cfg.H_FEAT, cfg.W_FEAT)
+            print('bbox_prediction_time: ', time.time()-bbox_prediction_time)
+            total_time += (time.time() - bbox_prediction_time)
+            #print('bbox_predictions: ', bbox_predictions.shape)
+            #print(bbox_predictions[0,:])
+
             #calculate the loss
             loss_time = time.time()
             bbox_ind_loss, bbox_offset_loss = self.add_bbox_loss_op(ref_scores, bbox_offset_fcn, bboxRefScoreGt, bboxOffsetGt)
             loss += (bbox_ind_loss + bbox_offset_loss)
-            #print('loss_time: ', time.time()-loss_time)
-            
+            print('loss_time: ', time.time()-loss_time)
+            total_time += (time.time() - loss_time)
+             
+            bbox_iou_time = time.time()
             # for normal version, calculate box ious to use as a metric
             bbox_ious = batch_bbox_iou(bbox_predictions, bboxCoordsGt, bboxRefScoreGt)
             #print('bbox_ious: ', bbox_ious.shape)
             bbox_num_correct = np.sum(bbox_ious >= cfg.BBOX_IOU_THRESH)
-            
+            possible_correct_boxes = torch.sum(bboxRefScoreGt).item()
+            print('bbox_iou_time: ', time.time()-bbox_iou_time)
+
+            #print('bbox_num_correct: ', bbox_num_correct, ' possible_correct_boxes: ', possible_correct_boxes, ' box_accuracy: ', bbox_num_correct/possible_correct_boxes)
             # calculate number of positives, negatives, and AUC using function
-            true_positive, total_positive, true_negative, total_negative, precision, top_accuracy_list, AUC, f1 = self.calc_correct(bboxRefScoreGt, ref_scores)
-            
+            calc_correct_time = time.time()
+            true_positive, total_positive, true_negative, total_negative, precision, top_accuracy_list = self.calc_correct(bboxRefScoreGt, ref_scores)
+            print('calc_correct_time: ', time.time() - calc_correct_time)
+            total_time += (time.time() - calc_correct_time)
+
             res_update_time = time.time()
             possible_correct = float(bboxRefScoreGt.shape[0]*bboxRefScoreGt.shape[1])
-            possible_correct_boxes = torch.sum(bboxRefScoreGt).item()
             res.update({
-                "accuracy_list" : top_accuracy_list.detach().cpu().numpy(),
+                "top_accuracy_list" : top_accuracy_list.detach().cpu().numpy(),
                 "bbox_predictions": bbox_predictions,
                 "gt_coords": bboxCoordsGt,
                 "bbox_ious": bbox_ious,
@@ -211,25 +239,29 @@ class LCGNnet(nn.Module):
                 "possible_correct": float(possible_correct),
                 "possible_correct_boxes": int(possible_correct_boxes),
                 "precision": float(precision),
-                "pr_AUC": float(AUC),
-                "pr_f1": f1
+                #"pr_AUC": float(AUC),
+                #"pr_f1": f1
             #BRYCE CODE
             })
         res.update({"batch_size": int(batchSize), "loss": loss})
-        #print('res_update_time: ', time.time() - res_update_time)
+        total_time += (time.time() - res_update_time)
+        print('res_update_time: ', time.time() - res_update_time)
         print('forward time: ', time.time() - forward_time)
+        print('total_time: ', total_time)
         return res
 
     #BRYCE CODE
     def calc_correct(self, gt_scores, ref_scores_original):
         batchSize = gt_scores.shape[0]
-        calc_correct_time = time.time()
+        calc_ref_slices_time = time.time() 
+        # ref_scores is the same as the original ref_scores, but the top probability is always above threshold
         ref_scores = ref_scores_original.clone() 
         max_inds = torch.argmax(ref_scores, dim=1).squeeze()
         ref_scores[torch.arange(ref_scores.shape[0]), max_inds] = 1
         #print('max_inds: ', max_inds.shape)
         #print('ref_scores max: ', ref_scores[torch.arange(ref_scores.shape[0]), max_inds])
         #print('ref_scores not max: ', ref_scores[torch.arange(ref_scores.shape[0]), (max_inds - 1)])
+
         # slice inds is the indices where the ground truth positives are
         slice_inds = (gt_scores !=0).nonzero()
         total_positive = slice_inds.shape[0]
@@ -244,77 +276,71 @@ class LCGNnet(nn.Module):
         #the means of the values for the probabilities at gt positive and gt negative indiceis
         pos_mean = torch.mean(ref_slice, dim=0)
         neg_mean = torch.mean(ref_slice_neg, dim=0)
-        print('\n Pos Mean: ', pos_mean.item(), ' Neg mean: ', neg_mean.item())
-        
-        #for different thresholds, calculate precision and recall
-        #for thresh in np.arange(0, 1.01, 0.05):
-        #    true_positive = np.sum(ref_slice.detach().cpu().numpy() >= thresh)
-        #    true_negative = np.sum(ref_slice_neg.detach().cpu().numpy() < thresh)
-        #    false_negative = total_positive - true_positive
-        #    false_positive = total_negative - true_negative
-        #    precision = true_positive / (true_positive + false_positive)
-        #    recall = true_positive / (true_positive + false_negative)
-        #    print('\n\n Threshold: ', thresh)
-        #    print('Precisions: ', precision)
-        #    print('Recall: ', recall)
-        #    print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', total_negative - true_negative)
-        #    print('CORRECT: ', true_negative + true_positive, ' INCORRECT: ', gt_scores.shape[0]*gt_scores.shape[1]-(true_negative + true_positive))
-        #    print('Accuracy: ', (true_negative + true_positive) / (gt_scores.shape[0]*gt_scores.shape[1]))
-        
+        print('Pos Mean: ', pos_mean.item(), ' Neg mean: ', neg_mean.item())
+        print('calc_ref_slices_time: ', time.time() - calc_ref_slices_time)
+
+        calc_pr_time = time.time()
+        # thresh classification is the actual classification of each box based on the threshold, 0 for predicted negative, 1 for predicted positive
         thresh_classifications = ref_scores.clone()
         thresh_classifications[thresh_classifications >= cfg.MATCH_THRESH] = 1
         thresh_classifications[thresh_classifications < cfg.MATCH_THRESH] = 0
-        #print('thresh_classifications: ', thresh_classifications)
+        #print('thresh_classifications: ', thresh_classifications.shape)
+        #print(thresh_classifications[0,:])
         true_positive = len((ref_slice >= cfg.MATCH_THRESH).nonzero())
         true_negative = len((ref_slice_neg < cfg.MATCH_THRESH).nonzero())
         false_negative = total_positive - true_positive
         false_positive = total_negative - true_negative
-        print('true_positive: ', true_positive, ' total_positive: ', total_positive, ' false_positive: ', false_positive)
-        print('true_negative: ', true_negative, ' total negative: ', total_negative, ' false_negative: ', false_negative)
+        #print('true_positive: ', true_positive, ' total_positive: ', total_positive, ' false_positive: ', false_positive)
+        #print('true_negative: ', true_negative, ' total negative: ', total_negative, ' false_negative: ', false_negative)
         precision = true_positive / (true_positive + false_positive)
         recall = true_positive / (true_positive + false_negative)
+        print('calculate precision and recall time: ', time.time() - calc_pr_time)
 
+        top_pos_time = time.time()
+        # calculate top positive
         num_gt_pos =torch.sum(gt_scores, dim=1)
-        pos_correct = gt_scores * thresh_classifications
         top_pos = torch.sum((gt_scores * thresh_classifications), dim=1).float()
         #print('top_pos: ', top_pos.shape)
         top_accuracy = top_pos / num_gt_pos
-        print('top_accuracy: ', top_accuracy.shape, ' ', top_accuracy)
+        #print('top_accuracy: ', top_accuracy.shape, ' ', top_accuracy)
+        print('calc_top_pos_time: ', time.time()-top_pos_time)
+
         #calculate ACU
         #ROC
-        probabilities = ref_scores.clone().detach().cpu().numpy()
-        thresh_class_np = thresh_classifications.detach().cpu().numpy()
-        gt = gt_scores.detach().cpu().numpy()
-        if batchSize == 1:
-            gt = np.expand_dims(gt, axis=0)
-            probabilities = np.expand_dims(probabilities, axis=0)
-        AUC = 0
-        f1 = 0
-        for b in range(batchSize):
-            pr_precision = dict() 
-            pr_recall = dict()
-            pr_auc = dict()
-            pr_f1 = dict()
-            pr_precision[b], pr_recall[b], _ = precision_recall_curve(gt[b,:].T, probabilities[b,:].T)
-            pr_auc[b] = auc(pr_recall[b], pr_precision[b])
-            pr_f1[b] = f1_score(gt[b,:].T, thresh_class_np[b,:].T)
-            #print('f1: ', pr_f1)
-            #print('auc: ', pr_auc)
-            AUC += pr_auc[b]
-            f1 += pr_f1[b]
-            #print('\nauc is ', roc_auc[b])
-        AUC = AUC / batchSize
-        f1 = f1 / batchSize
+        #calc_AUC_time = time.time()
+        #probabilities = ref_scores.clone().detach().cpu().numpy()
+        #thresh_class_np = thresh_classifications.clone().detach().cpu().numpy()
+        #gt = gt_scores.clone().detach().cpu().numpy()
+        #if batchSize == 1:
+        #    gt = np.expand_dims(gt, axis=0)
+        #    probabilities = np.expand_dims(probabilities, axis=0)
+        #    thresh_class_np = np.expand_dims(thresh_class_np, axis=0)
+        #AUC = 0
+        #f1 = 0
+        #for b in range(batchSize):
+        #    pr_precision = dict() 
+        #    pr_recall = dict()
+        #    pr_auc = dict()
+        #    pr_f1 = dict()
+        #    pr_precision[b], pr_recall[b], _ = precision_recall_curve(gt[b,:].T, probabilities[b,:].T)
+        #    pr_auc[b] = auc(pr_recall[b], pr_precision[b])
+        #    pr_f1[b] = f1_score(gt[b,:].T, thresh_class_np[b,:].T)
+        #    AUC += pr_auc[b]
+        #    f1 += pr_f1[b]
+        #AUC = AUC / batchSize
+        #f1 = f1 / batchSize
+        #print('Average pr AUC: ', AUC)
+        #print('Average pr f1: ', f1)
+        #print('calculate AUC time: ', time.time() - calc_AUC_time)
+        
         # recalculate for thresh in config = 0.9 and return results
         print('Precisions: ', precision)
         print('Recall: ', recall)
-        print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', total_negative - true_negative)
+        print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', false_positive)
+        print('TRUE_NEGATIVE: ', true_negative, 'FALSE_NEGATIVE: ', false_negative)
         print('CORRECT: ', true_negative + true_positive, ' INCORRECT: ', gt_scores.shape[0]*gt_scores.shape[1]-(true_negative + true_positive))
         print('Top Accuracy: ', torch.mean(top_accuracy))
-        print('Average pr AUC: ', AUC)
-        print('Average pr f1: ', f1)
-        #print('calc_correct_time: ', time.time()-calc_correct_time)
-        return (true_positive, total_positive, true_negative, total_negative, precision, top_accuracy, AUC, f1)
+        return (true_positive, total_positive, true_negative, total_negative, precision, top_accuracy)#, AUC, f1)
 
     def add_pred_op(self, logits, answers):
         if cfg.MASK_PADUNK_IN_LOGITS:
@@ -341,13 +367,9 @@ class LCGNnet(nn.Module):
 
     #DEBUG
     def add_bbox_loss_op(self, ref_scores, bbox_offset_fcn, bbox_ind_gt, bbox_offset_gt):
-        #BRYCE CODE
         # bounding box selection loss
-        
         #print('ref_scores: ', ref_scores.shape, ' bbox_ind_gt: ', bbox_ind_gt.shape)
-    #def add_bbox_loss_op(self, ref_scores, bbox_ind_gt):
-    #DEBUG
-        # Using weight 
+        #calculate weights for unbalanced dataset
         gt_positive = 1.0 * torch.sum(bbox_ind_gt).item()
         gt_negative = 1.0 * (bbox_ind_gt.shape[0] * bbox_ind_gt.shape[1] - gt_positive)
         gt_total = 1.0 * bbox_ind_gt.shape[0]*bbox_ind_gt.shape[1]
@@ -355,6 +377,7 @@ class LCGNnet(nn.Module):
         positive_weight = 1 - (gt_positive/gt_total)
         negative_weight = 1 - (gt_negative/gt_total)
         #print('positive_weight: ', positive_weight)
+        #print('negative_weight: ', negative_weight)
         weight_matrix = (((positive_weight-negative_weight) * bbox_ind_gt) + negative_weight).cuda()
         #print('weight_matrix: ', weight_matrix[0,:])
         #print(weight_matrix[1,:])
@@ -362,10 +385,10 @@ class LCGNnet(nn.Module):
         #print('\nref_scores: ', ref_scores.view(-1))
         #print('gt: ', bbox_ind_gt.view(-1))
         #print('gt size: ', bbox_ind_gt.shape)
+
         # bounding box regression loss
-       
         slice_inds = (bbox_ind_gt != 0).nonzero()
-        #print(weight_matrix[slice_inds[:,0], slice_inds[:,1]])
+        #print('weight_matrix at gt pos ind: ', weight_matrix[slice_inds[:,0], slice_inds[:,1]])
 
         ref_scores_sliced = ref_scores[slice_inds[:,0], slice_inds[:,1]]
         bbox_ind_gt_sliced = bbox_ind_gt[slice_inds[:,0], slice_inds[:,1]]
@@ -377,15 +400,17 @@ class LCGNnet(nn.Module):
         bbox_offset_sliced = bbox_offset_fcn[slice_inds[:,0], slice_inds[:,1], :]
         gt_offset_sliced = bbox_offset_gt[slice_inds[:,0], slice_inds[:,1], :]
         
-        #print('bbox_offset_flat: ', bbox_offset_fcn.shape)
+        #print('bbox_offset_fcn: ', bbox_offset_fcn.shape)
         #print('bbox_offset_gt: ', bbox_offset_gt.shape)
         #print('bbox_offset_sliced: ', bbox_offset_sliced.shape)
         #print('gt_offset_sliced: ', gt_offset_sliced.shape)
+        #print('bbox_offset_fcn: ', bbox_offset_fcn[0,:,:])
+        #print('bbox_offset_gt: ', bbox_offset_gt[0,:,:])
+        #print('bbox_offset_sliced: ', bbox_offset_sliced[0,:])
+        #print('gt_offset_sliced: ', gt_offset_sliced[0,:])
         
         bbox_offset_loss = F.mse_loss(bbox_offset_sliced, gt_offset_sliced)
-        
-        #BRYCE CODE
-        #return bbox_ind_loss#, bbox_offset_loss
+        #print('bbox_offset_loss: ', bbox_offset_loss)
         return bbox_ind_loss, bbox_offset_loss
 
 
@@ -483,27 +508,28 @@ class LCGNwrapper():
                     param_group['lr'] = lr
                 self.lr = lr
             self.optimizer.zero_grad()
-            #print('start_time: ', time.time()-start_time)
+            print('start_time: ', time.time()-start_time)
             forward_time = time.time()
             batch_res = self.model.forward(batch, run_vqa, run_ref)
-            #print('forward_time: ', time.time() - forward_time)
+            print('forward_time: ', time.time() - forward_time)
             backward_time = time.time()
             loss = batch_res['loss']
             loss.backward()
-            #print('backward_time: ', time.time() - backward_time)
+            print('backward_time: ', time.time() - backward_time)
             if cfg.TRAIN.CLIP_GRADIENTS:
                 clip_grad_time = time.time()
                 nn.utils.clip_grad_norm_(
                     self.trainable_params, cfg.TRAIN.GRAD_MAX_NORM)
-                #print('clip_grad_time: ', time.time()-clip_grad_time)
+                print('clip_grad_time: ', time.time()-clip_grad_time)
             step_time = time.time()
             self.optimizer.step()
-            #print('optimizer step time: ', time.time() - step_time)
+            print('optimizer step time: ', time.time() - step_time)
             if cfg.USE_EMA:
                 self.ema.step(self.ema_param_dict)
         else:
             not_train_time = time.time()
             with torch.no_grad():
                 batch_res = self.model.forward(batch, run_vqa, run_ref)
-            #print('not_train_time: ', time.time()-not_train_time)
+            print('not_train_time: ', time.time()-not_train_time)
+        pause
         return batch_res
