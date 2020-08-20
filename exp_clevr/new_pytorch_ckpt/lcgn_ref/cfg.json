@@ -1,7 +1,7 @@
 {
   "train": true,
   "EXP_NAME": "lcgn_ref",
-  "GPUS": "1",
+  "GPUS": "0",
   "SNAPSHOT_FILE": "./exp_clevr/pytorch_ckpt/%s/%04d.ckpt",
   "VOCAB_QUESTION_FILE": "./exp_clevr/data/vocabulary_clevr_locplus.txt",
   "VOCAB_ANSWER_FILE": "./exp_clevr/data/answers_clevr.txt",
@@ -44,7 +44,7 @@
   "BUILD_VQA": false,
   "BUILD_REF": true,
   "BBOX_IOU_THRESH": 0.5,
-  "MATCH_THRESH": 0.75,
+  "MATCH_THRESH": 0.9,
   "IMG_H": 320,
   "IMG_W": 480,
   "TRAIN": {
@@ -69,7 +69,7 @@
     "BATCH_SIZE": 128,
     "EPOCH": 40,
     "DUMP_PRED": false,
-    "RESULT_DIR": "./exp_clevr/results/%s/%04d",
+    "RESULT_DIR": "\u2018./exp_clevr/results/min_one_box/%s/%04d\u2019",
     "NUM_VIS": 0,
     "VIS_DIR_PREFIX": "vis",
     "VIS_FILTER_EDGE": true,

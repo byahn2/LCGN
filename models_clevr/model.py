@@ -73,7 +73,6 @@ class LCGNnet(nn.Module):
             self.bbox_regression = BboxRegression()
 
     def forward(self, batch, run_vqa, run_ref):
-        forward_time = time.time()
         total_time = 0
         set_up_time = time.time()
         batchSize = len(batch['image_feat_batch'])
@@ -88,7 +87,7 @@ class LCGNnet(nn.Module):
         if run_vqa:
             answerIndices = torch.from_numpy(
                 batch['answer_label_batch'].astype(np.int64)).cuda()
-        print('set_up_time: ', time.time() - set_up_time)
+        #print('set_up_time: ', time.time() - set_up_time)
         total_time += (time.time() - set_up_time)
         build_gt_time = time.time()
         #BUILDING THE GROUND TRUTH MATRICES batch_size x num_proposals x 4
@@ -132,26 +131,25 @@ class LCGNnet(nn.Module):
             #print('bboxOffsetGt: ', bboxOffsetGt[0,:,:])
             #print('bboxCoordsGt: ', bboxCoordsGt[0,:,:])
         
-        print('build_gt_time: ', time.time() - build_gt_time)
+        #print('build_gt_time: ', time.time() - build_gt_time)
         total_time += (time.time() - build_gt_time)
         LSTM_time = time.time()
 
         # LSTM
         questionCntxWords, vecQuestions = self.encoder(
             questionIndices, questionLengths)
-        print('LSTM_Time: ', time.time() - LSTM_time)
+        #print('LSTM_Time: ', time.time() - LSTM_time)
         total_time += (time.time() - LSTM_time)
         LCGN_time = time.time()
         
         # LCGN
-        print('start LCGN')
+        #print('start LCGN')
         x_out = self.lcgn(
             images=images, q_encoding=vecQuestions,
             lstm_outputs=questionCntxWords, batch_size=batchSize,
             q_length=questionLengths, entity_num=imagesObjectNum)
-        print('End LCGN, LCGN_Time: ', time.time() - LCGN_time)
+        #print('End LCGN, LCGN_Time: ', time.time() - LCGN_time)
         total_time += (time.time() - LCGN_time)
-        
         # Single-Hop
         loss = torch.tensor(0., device=x_out.device)
         res = {}
@@ -172,7 +170,7 @@ class LCGNnet(nn.Module):
             assert cfg.FEAT_TYPE == 'spatial'
             #calculate ref_scores
             ref_scores = torch.sigmoid(self.grounder(x_out, vecQuestions, imagesObjectNum))
-            print('ref_scores_time: ', time.time()-ref_scores_time)
+            #print('ref_scores_time: ', time.time()-ref_scores_time)
             total_time += (time.time() - ref_scores_time) 
             #print('ref_scores: ', ref_scores.shape)
             #print(ref_scores[0,:])
@@ -180,7 +178,7 @@ class LCGNnet(nn.Module):
             offset_time = time.time()
             # calculate bbox_offset (this was not trained)
             bbox_offset, bbox_offset_fcn, ref_inds = self.bbox_regression(x_out, ref_scores)
-            print('offset_time: ', time.time() - offset_time)
+            #print('offset_time: ', time.time() - offset_time)
             total_time += (time.time() - offset_time) 
             #print('bbox_offset: ', bbox_offset.shape)
             #print('bbox_offset_fcn: ', bbox_offset_fcn.shape)
@@ -194,7 +192,7 @@ class LCGNnet(nn.Module):
             # It has the predicted x,y,w,h of all bounding boxes with matching scores higher than the threshold, all other coordinates are 0 
             bbox_prediction_time=time.time()
             bbox_predictions = batch_feat_grid2bbox(ref_inds.detach().cpu().numpy(), bboxCoordsGt.shape, bbox_offset.detach().cpu().numpy(), cfg.IMG_H / cfg.H_FEAT, cfg.IMG_W / cfg.W_FEAT,cfg.H_FEAT, cfg.W_FEAT)
-            print('bbox_prediction_time: ', time.time()-bbox_prediction_time)
+            #print('bbox_prediction_time: ', time.time()-bbox_prediction_time)
             total_time += (time.time() - bbox_prediction_time)
             #print('bbox_predictions: ', bbox_predictions.shape)
             #print(bbox_predictions[0,:])
@@ -203,7 +201,7 @@ class LCGNnet(nn.Module):
             loss_time = time.time()
             bbox_ind_loss, bbox_offset_loss = self.add_bbox_loss_op(ref_scores, bbox_offset_fcn, bboxRefScoreGt, bboxOffsetGt)
             loss += (bbox_ind_loss + bbox_offset_loss)
-            print('loss_time: ', time.time()-loss_time)
+            #print('loss_time: ', time.time()-loss_time)
             total_time += (time.time() - loss_time)
              
             bbox_iou_time = time.time()
@@ -212,13 +210,13 @@ class LCGNnet(nn.Module):
             #print('bbox_ious: ', bbox_ious.shape)
             bbox_num_correct = np.sum(bbox_ious >= cfg.BBOX_IOU_THRESH)
             possible_correct_boxes = torch.sum(bboxRefScoreGt).item()
-            print('bbox_iou_time: ', time.time()-bbox_iou_time)
+            #print('bbox_iou_time: ', time.time()-bbox_iou_time)
 
             #print('bbox_num_correct: ', bbox_num_correct, ' possible_correct_boxes: ', possible_correct_boxes, ' box_accuracy: ', bbox_num_correct/possible_correct_boxes)
             # calculate number of positives, negatives, and AUC using function
             calc_correct_time = time.time()
             true_positive, total_positive, true_negative, total_negative, precision, top_accuracy_list = self.calc_correct(bboxRefScoreGt, ref_scores)
-            print('calc_correct_time: ', time.time() - calc_correct_time)
+            #print('calc_correct_time: ', time.time() - calc_correct_time)
             total_time += (time.time() - calc_correct_time)
 
             res_update_time = time.time()
@@ -245,9 +243,8 @@ class LCGNnet(nn.Module):
             })
         res.update({"batch_size": int(batchSize), "loss": loss})
         total_time += (time.time() - res_update_time)
-        print('res_update_time: ', time.time() - res_update_time)
-        print('forward time: ', time.time() - forward_time)
-        print('total_time: ', total_time)
+        #print('res_update_time: ', time.time() - res_update_time)
+        #print('total_time: ', total_time)
         return res
 
     #BRYCE CODE
@@ -276,8 +273,8 @@ class LCGNnet(nn.Module):
         #the means of the values for the probabilities at gt positive and gt negative indiceis
         pos_mean = torch.mean(ref_slice, dim=0)
         neg_mean = torch.mean(ref_slice_neg, dim=0)
-        print('Pos Mean: ', pos_mean.item(), ' Neg mean: ', neg_mean.item())
-        print('calc_ref_slices_time: ', time.time() - calc_ref_slices_time)
+        #print('Pos Mean: ', pos_mean.item(), ' Neg mean: ', neg_mean.item())
+        #print('calc_ref_slices_time: ', time.time() - calc_ref_slices_time)
 
         calc_pr_time = time.time()
         # thresh classification is the actual classification of each box based on the threshold, 0 for predicted negative, 1 for predicted positive
@@ -294,7 +291,7 @@ class LCGNnet(nn.Module):
         #print('true_negative: ', true_negative, ' total negative: ', total_negative, ' false_negative: ', false_negative)
         precision = true_positive / (true_positive + false_positive)
         recall = true_positive / (true_positive + false_negative)
-        print('calculate precision and recall time: ', time.time() - calc_pr_time)
+        #print('calculate precision and recall time: ', time.time() - calc_pr_time)
 
         top_pos_time = time.time()
         # calculate top positive
@@ -303,7 +300,7 @@ class LCGNnet(nn.Module):
         #print('top_pos: ', top_pos.shape)
         top_accuracy = top_pos / num_gt_pos
         #print('top_accuracy: ', top_accuracy.shape, ' ', top_accuracy)
-        print('calc_top_pos_time: ', time.time()-top_pos_time)
+        #print('calc_top_pos_time: ', time.time()-top_pos_time)
 
         #calculate ACU
         #ROC
@@ -334,12 +331,12 @@ class LCGNnet(nn.Module):
         #print('calculate AUC time: ', time.time() - calc_AUC_time)
         
         # recalculate for thresh in config = 0.9 and return results
-        print('Precisions: ', precision)
-        print('Recall: ', recall)
-        print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', false_positive)
-        print('TRUE_NEGATIVE: ', true_negative, 'FALSE_NEGATIVE: ', false_negative)
-        print('CORRECT: ', true_negative + true_positive, ' INCORRECT: ', gt_scores.shape[0]*gt_scores.shape[1]-(true_negative + true_positive))
-        print('Top Accuracy: ', torch.mean(top_accuracy))
+        #print('Precisions: ', precision)
+        #print('Recall: ', recall)
+        #print('TRUE POSITIVE: ', true_positive, ' FALSE POSITIVE: ', false_positive)
+        #print('TRUE_NEGATIVE: ', true_negative, 'FALSE_NEGATIVE: ', false_negative)
+        #print('CORRECT: ', true_negative + true_positive, ' INCORRECT: ', gt_scores.shape[0]*gt_scores.shape[1]-(true_negative + true_positive))
+        #print('Top Accuracy: ', torch.mean(top_accuracy))
         return (true_positive, total_positive, true_negative, total_negative, precision, top_accuracy)#, AUC, f1)
 
     def add_pred_op(self, logits, answers):
@@ -508,28 +505,27 @@ class LCGNwrapper():
                     param_group['lr'] = lr
                 self.lr = lr
             self.optimizer.zero_grad()
-            print('start_time: ', time.time()-start_time)
+            #print('start_time: ', time.time()-start_time)
             forward_time = time.time()
             batch_res = self.model.forward(batch, run_vqa, run_ref)
             print('forward_time: ', time.time() - forward_time)
             backward_time = time.time()
             loss = batch_res['loss']
             loss.backward()
-            print('backward_time: ', time.time() - backward_time)
+            #print('backward_time: ', time.time() - backward_time)
             if cfg.TRAIN.CLIP_GRADIENTS:
                 clip_grad_time = time.time()
                 nn.utils.clip_grad_norm_(
                     self.trainable_params, cfg.TRAIN.GRAD_MAX_NORM)
-                print('clip_grad_time: ', time.time()-clip_grad_time)
+                #print('clip_grad_time: ', time.time()-clip_grad_time)
             step_time = time.time()
             self.optimizer.step()
-            print('optimizer step time: ', time.time() - step_time)
+            #print('optimizer step time: ', time.time() - step_time)
             if cfg.USE_EMA:
                 self.ema.step(self.ema_param_dict)
         else:
             not_train_time = time.time()
             with torch.no_grad():
                 batch_res = self.model.forward(batch, run_vqa, run_ref)
-            print('not_train_time: ', time.time()-not_train_time)
-        pause
+            #print('not_train_time: ', time.time()-not_train_time)
         return batch_res

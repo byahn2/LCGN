@@ -73,18 +73,18 @@ class LCGN(nn.Module):
                 entity_num):
         loc_ctx_init_time = time.time()
         x_loc, x_ctx, x_ctx_var_drop = self.loc_ctx_init(images)
-        print('loc_ctx_init_time: ', time.time() - loc_ctx_init_time)
+        #print('loc_ctx_init_time: ', time.time() - loc_ctx_init_time)
         for_loop_time = time.time()
         for t in range(cfg.MSG_ITER_NUM): #MSG_ITER_NUM = 4
             message_passing_time = time.time()
             x_ctx = self.run_message_passing_iter(
                 q_encoding, lstm_outputs, q_length, x_loc, x_ctx,
                 x_ctx_var_drop, entity_num, t)
-            #print('message_passing_time: ', time.time() - message_passing_time)
-        print('for loop time: ', time.time() - for_loop_time)
+            #print('  message_passing_time: ', time.time() - message_passing_time)
+        #print('for loop time: ', time.time() - for_loop_time)
         combine_kb_time = time.time()
         x_out = self.combine_kb(torch.cat([x_loc, x_ctx], dim=-1)) # self.combine_kb is W12 from equation 8
-        print('combine_kb_time: ', time.time() - combine_kb_time)
+        #print('combine_kb_time: ', time.time() - combine_kb_time)
         return x_out
 
     # takes the lstm outputs, q_length = number of words, t = iteration, and q encoding which is the summary vector of lstm outputs
@@ -107,39 +107,55 @@ class LCGN(nn.Module):
     # calculates messages
     #updates context by concatenating incoming messages to update context representation
     def propagate_message(self, cmd, x_loc, x_ctx, x_ctx_var_drop, entity_num):
-        print('cmd: ', cmd.is_cuda)
-        print('x_loc: ', x_loc.is_cuda)
-        print('x_ctx: ', x_ctx.is_cuda)
-        print('x_ctx_var_drop: ', x_ctx_var_drop.is_cuda)
-        print('entity num: ', entity_num.is_cuda)
+        p1 = time.time()
         x_ctx = x_ctx * x_ctx_var_drop
+        #print('      x_ctx_old: ', time.time() - p1)
+        p2 = time.time()
         proj_x_loc = self.project_x_loc(self.read_drop(x_loc)) #proj_x_loc = W4*x_loc from equation 4
+        #print('      proj_x_loc: ', time.time() - p2)
+        p3 = time.time()
         proj_x_ctx = self.project_x_ctx(self.read_drop(x_ctx)) #proj_x_ctx = W5*x_ctx from equation 4
+        #print('      proj_x_ctx: ', time.time() - p3)
+        p4 = time.time()
         x_joint = torch.cat(
             [x_loc, x_ctx, proj_x_loc * proj_x_ctx], dim=-1)
-
+        #print('      x_joint: ', time.time() - p4)
+        p5 = time.time()
         queries = self.queries(x_joint) #queries ar W6*x_joint from equation 5
+        #print('      queries: ', time.time() - p5)
+        p6 = time.time()
         keys = self.keys(x_joint) * self.proj_keys(cmd)[:, None, :] #keys = (W7*x_joint) * (W8*cmd)) from eq 5
+        #print('      keys: ', time.time() - p5)
+        p7 = time.time()
         vals = self.vals(x_joint) * self.proj_vals(cmd)[:, None, :] #vals are ((W9*x_joint) * (W10*cmd)) from equation 6
+        #print('      vals: ', time.time() - p7)
+        p8 = time.time()
         edge_score = (
             torch.bmm(queries, torch.transpose(keys, 1, 2)) /
             np.sqrt(cfg.CTX_DIM))
+        #print('      edge_score: ', time.time() - p8)
+        p9 = time.time()
         edge_score = ops.apply_mask2d(edge_score, entity_num)
+        #print('      edge_score_mask: ', time.time()-p9)
+        p10 = time.time()
         edge_prob = F.softmax(edge_score, dim=-1)
+        #print('      edge_prob: ', time.time() - p10)
+        p11 = time.time()
         message = torch.bmm(edge_prob, vals) #message is weight * keys from equation 6
-
+        #print('      message: ', time.time() - p11)
+        p12 = time.time()
         x_ctx_new = self.mem_update(torch.cat([x_ctx, message], dim=-1)) #new_ctx = W11*(old_ctx * sum of messages) from equation 7
-        pause
+        #print('      x_ctx_new: ', time.time() - p12)
         return x_ctx_new
 
     # for one iteration, extracts textual command and updates context
     def run_message_passing_iter(self, q_encoding, lstm_outputs, q_length, x_loc, x_ctx,x_ctx_var_drop, entity_num, t):
         extract_time = time.time()
         cmd = self.extract_textual_command(q_encoding, lstm_outputs, q_length, t)
-        #print('extract_textual_command_time: ', time.time() - extract_time)
+        #print('    extract_textual_command_time: ', time.time() - extract_time)
         propagate_time = time.time()
         x_ctx = self.propagate_message(cmd, x_loc, x_ctx, x_ctx_var_drop, entity_num)
-        print('propagate_message_time: ', time.time() - propagate_time)
+        #print('    propagate_message_time: ', time.time() - propagate_time)
         return x_ctx
 
     # ititializes context

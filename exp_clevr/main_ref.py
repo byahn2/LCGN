@@ -52,27 +52,27 @@ def run_train_on_data(model, data_reader_train, lr_start,
             snapshot_file = cfg.SNAPSHOT_FILE % (cfg.EXP_NAME, n_epoch)
             save_model_time = time.time()
             torch.save(model.state_dict(), snapshot_file)
-            print('\nsave_model_time: ', time.time() - save_model_time)
+            #print('\nsave_model_time: ', time.time() - save_model_time)
             states_file = snapshot_file.replace('.ckpk', '') + '_states.npy'
             np.save(states_file, {'lr': lr})
-            print('snapshot_time: ', time.time() - snapshot_time)
+            #print('snapshot_time: ', time.time() - snapshot_time)
             eval_time = time.time()
             # run evaluation
             if run_eval:
                 run_eval_on_data(model, data_reader_eval)
                 model.train()
-            print('eval_time: ', time.time() - eval_time)
+            #print('eval_time: ', time.time() - eval_time)
             adjust_time = time.time()
             # adjust lr:
             curr_loss = loss_sum/batch_num
             if prev_loss is not None:
                 lr = adjust_lr_clevr(curr_loss, prev_loss, lr)
-            print('adjust_lr_time: ', time.time() - adjust_time)
+            #print('adjust_lr_time: ', time.time() - adjust_time)
             clear_stats_time = time.time()
             # clear stats
             correct, total, loss_sum, batch_num, top_acc = 0, 0, 0., 0, 0.
             prev_loss = curr_loss
-            print('clear_stats_time: ', time.time() - clear_stats_time)
+            #print('clear_stats_time: ', time.time() - clear_stats_time)
         
         batch_res_time = time.time()
         if n_epoch >= cfg.TRAIN.MAX_EPOCH:
@@ -135,7 +135,7 @@ def run_eval_on_data(model, data_reader_eval, pred=False):
         if pred:
             #BRYCE CODE
             predictions.extend({'image_ID': i, 'question_ID': q, 'accuracy': a, 'expression': e, 'expression_family': f, 'prediction': [x.tolist() for x in [b for b in p] if x[2]!=0], 'gt_boxes': [x.tolist() for x in [b for b in g] if x[2]!=0]}
-                    for i, q, a, e, f, p, g in zip(batch['imageid_list'], batch['qid_list'], batch_res['accuracy_list'], batch['qstr_list'], batch['ref_list'], batch_res['bbox_predictions'], batch_res['gt_coords']))
+                    for i, q, a, e, f, p, g in zip(batch['imageid_list'], batch['qid_list'], batch_res['top_accuracy_list'], batch['qstr_list'], batch['ref_list'], batch_res['bbox_predictions'], batch_res['gt_coords']))
 
             #print(predictions)
             #pause
