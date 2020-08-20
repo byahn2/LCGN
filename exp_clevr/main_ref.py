@@ -41,7 +41,7 @@ def run_train_on_data(model, data_reader_train, lr_start,
                       run_eval=False, data_reader_eval=None):
     model.train()
     lr = lr_start
-    correct, total, loss_sum, batch_num = 0, 0, 0., 0
+    correct, total, loss_sum, batch_num, top_accuracy_sum = 0, 0, 0., 0, 0.
     prev_loss = None
     for batch, n_sample, e in data_reader_train.batches(one_pass=False):
         batch_time = time.time()
@@ -85,11 +85,12 @@ def run_train_on_data(model, data_reader_train, lr_start,
         record_time = time.time()
         correct += batch_res['bbox_num_correct']
         total += batch_res['possible_correct_boxes']
+        top_accuracy_sum += batch_res['top_accuracy']
         #print('correct: ', correct, ' total: ', total, ' accuracy: ', correct/total)
         #BRYCE CODE
         loss_sum += batch_res['loss'].item()
         batch_num += 1
-        print('\rTrain E %d S %d: avgL=%.4f, avgA=%.4f, lr=%.1e' % (n_epoch+1, total, loss_sum/batch_num, correct/total, lr), end='')
+        print('\rTrain E %d S %d: avgL=%.4f, avgboxA=%.4f, avgtopA=%.4f, lr=%.1e' % (n_epoch+1, total, loss_sum/batch_num, correct/total, top_accuracy_sum/batch_num, lr), end='')
         print('record_time: ', time.time()-record_time)
         print('1 batch: ', time.time() - batch_time)
         #BRYCE CODE
@@ -149,7 +150,7 @@ def run_eval_on_data(model, data_reader_eval, pred=False):
         top_accuracy_sum += batch_res['top_accuracy']
         batch_num += 1
         #BRYCE CODE
-        print('\rEval S %d: avgL=%.4f, avgA=%.4f' % (total, loss_sum/batch_num, correct/total), end='')
+        print('\rEval S %d: avgL=%.4f, avgBoxA=%.4f, avgTopA=%.4f' % (total, loss_sum/batch_num, correct/total, top_accuracy_sum/batch_num), end='')
         #print('\rEval S %d: avgL=%.4f, avgA=%.4f' % (total, loss_sum/batch_num, top_accuracy_sum/batch_num), end='')
         #BRYCE CODE
     #print('')
