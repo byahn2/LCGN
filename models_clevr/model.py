@@ -224,7 +224,7 @@ class LCGNnet(nn.Module):
             res.update({
                 "top_accuracy_list" : top_accuracy_list.detach().cpu().numpy(),
                 "bbox_predictions": bbox_predictions,
-                "gt_coords": bboxCoordsGt,
+                "gt_coords": bboxCoordsGt.detach().cpu().numpy().astype(float),
                 "bbox_ious": bbox_ious,
                 "true_positive": int(true_positive),
                 "true_negative": int(true_negative),
@@ -295,12 +295,17 @@ class LCGNnet(nn.Module):
 
         top_pos_time = time.time()
         # calculate top positive
-        num_gt_pos =torch.sum(gt_scores, dim=1)
+        num_gt_pos =torch.sum(gt_scores, dim=1).int()
         top_pos = torch.sum((gt_scores * thresh_classifications), dim=1).float()
         #print('top_pos: ', top_pos.shape)
-        top_accuracy = top_pos / num_gt_pos
+        binary_top_accuracy = top_pos / num_gt_pos
         #print('top_accuracy: ', top_accuracy.shape, ' ', top_accuracy)
         #print('calc_top_pos_time: ', time.time()-top_pos_time)
+        top_accuracy = torch.zeros(batchSize)
+        for b in range(batchSize):
+            top_k, top_k_inds = torch.topk(ref_scores[b,:], k=num_gt_pos[b].item())
+            num_correct = torch.sum(gt_scores[(b*torch.ones(len(top_k_inds),dtype=int).cuda()), top_k_inds])
+            top_accuracy[b] = num_correct/num_gt_pos[b]
 
         #calculate ACU
         #ROC
