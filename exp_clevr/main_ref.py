@@ -231,7 +231,7 @@ def test():
     print('%s - test epoch %d' % (cfg.EXP_NAME, cfg.TEST.EPOCH))
     eval_res = run_eval_on_data(model, data_reader_eval, pred=pred)
     print('%s - test epoch %d: accuracy = %.4f' % (
-        cfg.EXP_NAME, cfg.TEST.EPOCH, eval_res['accuracy']))
+        cfg.EXP_NAME, cfg.TEST.EPOCH, eval_res['top_accuracy']))
 
     # write results
     if pred:
