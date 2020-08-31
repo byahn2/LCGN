@@ -11,7 +11,7 @@ import imgviz
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_path', default="/u/byahn2/LCGN_Sets/exp_clevr/results/lcgn_ref/0030/pred_bbox_lcgn_ref_0030_locplus_val.json",
+parser.add_argument('--data_path', default="/u/byahn2/LCGN_Sets/exp_clevr/results/withloss/0020/pred_bbox_lcgn_ref_0030_locplus_val.json",
     help="The location of the file containing the results of the evaluation")
 parser.add_argument('--image_height', default=224, type=int)
 parser.add_argument('--image_width', default=224, type=int)
@@ -25,7 +25,7 @@ def main(args):
     print('data: ', len(data))
     image_dir = '/u/byahn2/LCGN_Sets/exp_clevr/clevr_locplus_dataset/images/val/'
     img_size = (args.image_height, args.image_width)
-    for i in range(len(data)):
+    for i in range(50)#(len(data)):
         num_zeros = 10 - len(data[i]["image_ID"])
         z = ''
         for n in range(num_zeros):
@@ -73,7 +73,7 @@ def main(args):
 
         bboxviz = imgviz.instances2rgb(image=img, bboxes=boxes, labels=labels, captions=captions)
 
-        out_file = osp.join('/u/byahn2/LCGN_Sets/exp_clevr/results/visuals/val' + '_' + str(i) + '.jpg')
+        out_file = osp.join('/u/byahn2/LCGN_Sets/exp_clevr/results/visuals/withloss/val' + '_' + str(i) + '.jpg')
         imgviz.io.imsave(out_file, bboxviz)
 
     #Evaluate accuracy based on question type

@@ -36,14 +36,6 @@ class BboxRegression(nn.Module):
 
     def forward(self, x_out, slice_inds):
         bbox_offset_fcn = self.bbox_offset_fcn(x_out)
-        #BRYCE CODE
-        #print('BboxRegression')
-        #print('bbox_offset_fcn: ', bbox_offset_fcn.shape)
         assert len(x_out.size()) == 3
-        #print(slice_inds)
         bbox_offset = bbox_offset_fcn[slice_inds[:,0], slice_inds[:,1], :]
-        #print('bbox_offset: ', bbox_offset.shape)
-        #print(bbox_offset)
-
         return bbox_offset, bbox_offset_fcn
-        #BRYCE CODE

@@ -30,8 +30,8 @@ def build_imdb(image_set):
         assert q['image_filename'] == scene['image_filename']
         obj_inds = q['program'][-1]['_output']
         # BRYCE CODE
-        #if ref_class != 4:
-        #    continue
+        if ref_class == 15 or ref_class == 16:
+            continue
         # bbox now is a list of bounding box coordinates for all the correct answers
         obj_boxes = scene['obj_bbox']
         # obj_boxes is the set of bounding boxes for the scene

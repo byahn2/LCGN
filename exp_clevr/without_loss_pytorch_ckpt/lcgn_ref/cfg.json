@@ -1,8 +1,8 @@
 {
   "train": true,
   "EXP_NAME": "lcgn_ref",
-  "GPUS": "2",
-  "SNAPSHOT_FILE": "./exp_clevr/pytorch_ckpt/%s/%04d.ckpt",
+  "GPUS": "0",
+  "SNAPSHOT_FILE": "./exp_clevr/without_loss_pytorch_ckpt/%s/%04d.ckpt",
   "VOCAB_QUESTION_FILE": "./exp_clevr/data/vocabulary_clevr_locplus.txt",
   "VOCAB_ANSWER_FILE": "./exp_clevr/data/answers_clevr.txt",
   "IMDB_FILE": "./exp_clevr/data/imdb/imdb_%s.npy",
@@ -32,7 +32,7 @@
   "CTX_DIM": 512,
   "OUT_QUESTION_MUL": true,
   "OUT_CLASSIFIER_DIM": 512,
-  "ADD_SINGLE_LOSS": true,
+  "ADD_SINGLE_LOSS": false,
   "USE_EMA": true,
   "EMA_DECAY_RATE": 0.999,
   "encInputDropout": 0.85,
@@ -63,15 +63,15 @@
     },
     "MAX_EPOCH": 30,
     "RUN_EVAL": true,
-    "EVAL_MAX_NUM": 1000
+    "EVAL_MAX_NUM": 10
   },
   "TEST": {
     "SPLIT_VQA": "val",
     "SPLIT_REF": "locplus_val",
     "BATCH_SIZE": 128,
-    "EPOCH": 40,
+    "EPOCH": 20,
     "DUMP_PRED": false,
-    "RESULT_DIR": "\u2018./exp_clevr/results/withloss/%s/%04d\u2019",
+    "RESULT_DIR": "./exp_clevr/results/%s/%04d",
     "NUM_VIS": 0,
     "VIS_DIR_PREFIX": "vis",
     "VIS_FILTER_EDGE": true,
