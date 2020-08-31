@@ -18,7 +18,6 @@ if len(cfg.GPUS.split(',')) > 1:
 
 
 def load_train_data(max_num=0):
-    load_train_time = time.time()
     imdb_file = cfg.IMDB_FILE % cfg.TRAIN.SPLIT_REF
     data_reader = DataReader(
         imdb_file, shuffle=True, max_num=max_num,
@@ -30,10 +29,8 @@ def load_train_data(max_num=0):
         spatial_feature_dir=cfg.SPATIAL_FEATURE_DIR,
         add_pos_enc=cfg.ADD_POS_ENC, img_H=cfg.IMG_H, img_W=cfg.IMG_W,
         pos_enc_dim=cfg.PE_DIM, pos_enc_scale=cfg.PE_SCALE)
-    #print('after data reader')
     num_vocab = data_reader.batch_loader.vocab_dict.num_vocab
     num_choices = data_reader.batch_loader.answer_dict.num_vocab
-    print('load_train_time: ', time.time()-load_train_time)
     return data_reader, num_vocab, num_choices
 
 
@@ -44,56 +41,32 @@ def run_train_on_data(model, data_reader_train, lr_start,
     correct, total, loss_sum, batch_num, top_acc = 0, 0, 0., 0, 0.
     prev_loss = None
     for batch, n_sample, e in data_reader_train.batches(one_pass=False):
-        batch_time = time.time()
         n_epoch = cfg.TRAIN.START_EPOCH + e
         if n_sample == 0 and n_epoch > cfg.TRAIN.START_EPOCH:
-            snapshot_time = time.time()
-            ##save snapshot
             snapshot_file = cfg.SNAPSHOT_FILE % (cfg.EXP_NAME, n_epoch)
-            save_model_time = time.time()
             torch.save(model.state_dict(), snapshot_file)
-            #print('\nsave_model_time: ', time.time() - save_model_time)
             states_file = snapshot_file.replace('.ckpk', '') + '_states.npy'
             np.save(states_file, {'lr': lr})
-            #print('snapshot_time: ', time.time() - snapshot_time)
-            eval_time = time.time()
-            # run evaluation
             if run_eval:
                 run_eval_on_data(model, data_reader_eval)
                 model.train()
-            #print('eval_time: ', time.time() - eval_time)
-            adjust_time = time.time()
-            # adjust lr:
             curr_loss = loss_sum/batch_num
             if prev_loss is not None:
                 lr = adjust_lr_clevr(curr_loss, prev_loss, lr)
-            #print('adjust_lr_time: ', time.time() - adjust_time)
-            clear_stats_time = time.time()
-            # clear stats
             correct, total, loss_sum, batch_num, top_acc = 0, 0, 0., 0, 0.
             prev_loss = curr_loss
-            #print('clear_stats_time: ', time.time() - clear_stats_time)
         
-        batch_res_time = time.time()
         if n_epoch >= cfg.TRAIN.MAX_EPOCH:
             break
         batch_res = model.run_batch(
             batch, train=True, run_vqa=False, run_ref=True, lr=lr)
-        #print('batch_res_time: ', time.time()-batch_res_time)
-        #BRYCE CODE
 
-        record_time = time.time()
         correct += batch_res['bbox_num_correct']
         total += batch_res['possible_correct_boxes']
         top_acc += batch_res['top_accuracy']
-        #print('correct: ', correct, ' total: ', total, ' accuracy: ', correct/total)
-        #BRYCE CODE
         loss_sum += batch_res['loss'].item()
         batch_num += 1
         print('\rTrain E %d S %d: avgL=%.4f, avgboxA=%.4f, avgtopA=%.4f, lr=%.1e' % (n_epoch+1, total, loss_sum/batch_num, correct/total, top_acc/batch_num, lr), end='')
-        #print('record_time: ', time.time()-record_time)
-        print('\n1 batch: ', time.time() - batch_time)
-        #BRYCE CODE
 
 def adjust_lr_clevr(curr_los, prev_loss, curr_lr):
     loss_diff = prev_loss - curr_los
@@ -107,7 +80,6 @@ def adjust_lr_clevr(curr_los, prev_loss, curr_lr):
 
 
 def load_eval_data(max_num=0):
-    load_eval_time = time.time()
     imdb_file = cfg.IMDB_FILE % cfg.TEST.SPLIT_REF
     data_reader = DataReader(
         imdb_file, shuffle=False, max_num=max_num,
@@ -121,45 +93,32 @@ def load_eval_data(max_num=0):
         pos_enc_dim=cfg.PE_DIM, pos_enc_scale=cfg.PE_SCALE)
     num_vocab = data_reader.batch_loader.vocab_dict.num_vocab
     num_choices = data_reader.batch_loader.answer_dict.num_vocab
-    print('load_eval_time: ', time.time() - load_eval_time)
     return data_reader, num_vocab, num_choices
 
 
 def run_eval_on_data(model, data_reader_eval, pred=False):
     model.eval()
     predictions = []
-    correct, total, loss_sum, batch_num, AUC_sum, f1_sum, top_accuracy_sum = 0, 0, 0., 0, 0., 0., 0.
+    correct, total, loss_sum, batch_num, top_accuracy_sum = 0, 0, 0., 0, 0.
+    # record all of the relevant information for visualization and average the accuracy over batches
     for batch, _, _ in data_reader_eval.batches(one_pass=True):
         batch_res = model.run_batch(
             batch, train=False, run_vqa=False, run_ref=True)
         if pred:
-            #BRYCE CODE
             predictions.extend({'image_ID': i, 'question_ID': q, 'accuracy': a, 'expression': e, 'expression_family': f, 'prediction': [x.tolist() for x in [b for b in p] if x[2]!=0], 'gt_boxes': [x.tolist() for x in [b for b in g] if x[2]!=0]}
                     for i, q, a, e, f, p, g in zip(batch['imageid_list'], batch['qid_list'], batch_res['top_accuracy_list'], batch['qstr_list'], batch['ref_list'], batch_res['bbox_predictions'], batch_res['gt_coords']))
 
-            #print(predictions)
-            #pause
-            #BRYCE CODE
         correct += batch_res['bbox_num_correct']
-        #BRYCE CODE
         total += batch_res['possible_correct_boxes']
-        #BRYCE CODE
         loss_sum += batch_res['loss'].item()
-        #AUC_sum += batch_res['pr_AUC']
-        #f1_sum += batch_res['pr_f1']
         top_accuracy_sum += batch_res['top_accuracy']
         batch_num += 1
-        #BRYCE CODE
         print('\rEval S %d: avgL=%.4f, avgA=%.4f, avgTopA=%.4f' % (total, loss_sum/batch_num, correct/total, top_accuracy_sum/batch_num), end='')
-        #BRYCE CODE
-    #print('')
     eval_res = {
         'correct': correct,
         'total': total,
         'box_accuracy': float(correct*1./total),
         'top_accuracy': top_accuracy_sum/batch_num,
-        #'pr_AUC': float(AUC_sum/batch_num),
-        #'pr_f1': float(f1_sum/batch_num),
         'loss': loss_sum/batch_num,
         'predictions': predictions}
     return eval_res

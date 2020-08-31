@@ -3,9 +3,7 @@ from torch import nn
 
 from . import ops as ops
 from .config import cfg
-#BRYCE CODE
 import numpy as np
-#BRYCE CODE
 
 class Classifier(nn.Module):
     def __init__(self, num_choices):
@@ -41,21 +39,8 @@ class BboxRegression(nn.Module):
         probabilities = ref_scores.clone()
         max_inds = torch.argmax(probabilities, dim=1).squeeze()
         probabilities[torch.arange(probabilities.shape[0]), max_inds] = 1
-
-        #print('probabilities max: ', probabilities[torch.arange(probabilities.shape[0]), max_inds])
-        #print('probabilities not max: ', probabilities[torch.arange(probabilities.shape[0]), max_inds+1])
-        #print('bbox_offset_fcn: ', bbox_offset_fcn.shape)
-        
         #slice inds is the indices where the probability is above threshold (or is the maximum probability).  These are the predicted indices
         slice_inds = (probabilities > cfg.MATCH_THRESH).nonzero()
-
-        #print('slice_inds: ', slice_inds.shape)
-        #print(slice_inds)
-        
         #bbox offset is the offset for the predicted boxes
         bbox_offset = bbox_offset_fcn[slice_inds[:,0], slice_inds[:,1], :]
-        
-        #print('bbox_offset: ', bbox_offset.shape)
-        #print(bbox_offset)
-        
         return bbox_offset, bbox_offset_fcn, slice_inds

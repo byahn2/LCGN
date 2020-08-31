@@ -81,16 +81,11 @@ def batch_feat_grid2bbox(ref_ind, out_shape, offset, stride_H, stride_W, feat_H,
 
 #BRYCE CODE
 def batch_bbox_iou(predictions, gt, gt_ref_scores):
-    #correct_inds = np.argwhere(gt.cpu().numpy() > 0)
     correct_inds = np.argwhere(gt_ref_scores.cpu().numpy() > 0)
     batches = correct_inds[:, 0]
     indices = correct_inds[:,1]
     bbox_1 = predictions[batches, indices, :]
     bbox_2 = gt[batches, indices, :].cpu().numpy()
-    #print('bbox_1: ', bbox_1.shape)
-    #print('bbox_2: ', bbox_2.shape)
-    #print('correct_inds: ', correct_inds.shape)
-#BRYCE CODE
     x1_1, y1_1, w_1, h_1 = bbox_1.T
     x2_1 = x1_1 + w_1 - 1
     y2_1 = y1_1 + h_1 - 1
